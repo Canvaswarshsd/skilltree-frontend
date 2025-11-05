@@ -1,0 +1,255 @@
+/* Fullscreen & reset */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; width: 100%; margin: 0; }
+
+/* Seite nicht scrollen (Topbar bleibt sichtbar, kein "Mitscroll"-Effekt) */
+html, body { overflow: hidden; }
+
+/* Hintergrund weiß */
+.app { 
+  height: 100vh; 
+  width: 100vw; 
+  display: flex; 
+  flex-direction: column; 
+  background: #ffffff;
+  color: #fff; 
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; 
+}
+
+/* Disable selection during drag */
+.dragging-global, .dragging-global * { user-select: none !important; cursor: grabbing !important; }
+
+/* Topbar (bleibt oben, zoomt nicht mit) */
+.topbar { 
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+
+  display: flex; 
+  gap: .75rem; 
+  align-items: center; 
+  padding: .75rem 1.25rem; 
+  border-bottom: 1px solid rgba(255,255,255,.08); 
+  background: rgba(2,6,23,.9); /* schwarz */
+}
+.project-input { 
+  background: rgba(15,23,42,.35); 
+  border: 1px solid rgba(255,255,255,.12); 
+  border-radius: .5rem; 
+  padding: .45rem .7rem; 
+  color: #fff; 
+  min-width: 260px; 
+}
+.btn { 
+  background: rgba(148,163,184,.14); 
+  border: none; 
+  border-radius: .5rem; 
+  padding: .45rem .8rem; 
+  color: #fff; 
+  font-weight: 600; 
+  cursor: pointer; 
+}
+.view-switch { 
+  display: flex; 
+  gap: .4rem; 
+  /* margin-left:auto;  <-- entfernt, damit die Buttons links zusammenstehen */
+}
+.view-btn { 
+  background: rgba(15,23,42,.4); 
+  border: 1px solid transparent; 
+  border-radius: .5rem; 
+  padding: .4rem .75rem; 
+  color: #fff; 
+  cursor: pointer; 
+  font-size: .85rem; 
+}
+.view-btn.active { background: #38bdf8; color: #020617; }
+
+/* Body */
+.body { 
+  flex: 1; 
+  display: flex; 
+  width: 100%; 
+  height: calc(100vh - 56px); 
+  overflow: hidden; 
+  background: #ffffff;
+}
+
+/* Edit view */
+.task-list { 
+  flex: 1; 
+  padding: 1.2rem 1.4rem 2rem; 
+  overflow: auto; 
+}
+.section-title { font-size: 1rem; margin-bottom: .8rem; opacity: .85; }
+.task-row {
+  background: rgba(15,23,42,.35);
+  border: 1px solid rgba(148,163,184,.22);
+  border-radius: .6rem;
+  padding: .6rem .7rem;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-bottom: .45rem;
+  cursor: grab;
+}
+.dragging-row { opacity: .9; }
+.task-bullet { 
+  width: 7px; 
+  height: 7px; 
+  background: rgba(148,163,184,.65); 
+  border-radius: 9999px; 
+}
+.task-input { 
+  background: transparent; 
+  border: none; 
+  color: #fff; 
+  font-size: .9rem; 
+  flex: 0 1 260px; 
+}
+.task-input:focus { outline: none; }
+.task-parent-label { font-size: .7rem; opacity: .45; }
+
+/* Visuelles Feedback beim droppable Hover */
+.task-row.drop-hover {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56,189,248,.25) inset;
+}
+
+/* Map */
+.skillmap-wrapper { 
+  flex: 1; 
+  position: relative; 
+  width: 100%; 
+  height: 100%; 
+  background: #ffffff;
+  overflow: hidden; 
+  cursor: grab; 
+  touch-action: none;   /* <— nur hier, nicht global */
+}
+.skillmap-wrapper:active { cursor: grabbing; }
+
+/* Pannable layer */
+.map-pan { position: absolute; inset: 0; }
+
+/* Map origin at screen center (0,0 coordinate) */
+.map-origin { 
+  position: absolute; 
+  left: 50%; 
+  top: 50%; 
+  transform: translate(-50%, -50%); 
+  width: 0; 
+  height: 0; 
+}
+
+/* SVG layer: fixed pixel grid */
+.map-svg {
+  position: absolute;
+  width: 4000px;
+  height: 4000px;
+  left: -2000px;
+  top: -2000px;
+  overflow: visible;
+  z-index: 1; /* lines unter nodes */
+}
+
+/* Nodes */
+.skill-node {
+  width: 120px; 
+  height: 120px; 
+  border-radius: 9999px;
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  text-align: center; 
+  font-weight: 700; 
+  color: #fff;
+  position: absolute; 
+  z-index: 2; 
+  box-shadow: 0 12px 36px rgba(0,0,0,.35);
+  left: 0; 
+  top: 0;
+
+  /* Lange Labels: robuster Umbruch */
+  padding: 0 12px;
+  line-height: 1.1;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+.center-node { 
+  width: 150px; 
+  height: 150px; 
+  background: #020617; 
+  border: 2px solid rgba(255,255,255,.1); 
+  color: #fff; 
+  transform: translate(-50%, -50%); 
+  left: 0; 
+  top: 0; 
+}
+.root-node { /* color inline */ }
+.child-node { width: 100px; height: 100px; font-size: .75rem; }
+
+/* Center-Button: fixiertes Overlay (links oben, NICHT skaliert) */
+.center-btn {
+  position: fixed;         /* fixiert am Viewport */
+  top: 72px;               /* unter der Topbar */
+  left: 12px;
+  z-index: 20000;          /* klar über transformierten Layern */
+  background: rgba(15,23,42,.85);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: .5rem;
+  padding: .45rem .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s ease, transform .05s ease;
+  pointer-events: auto;    /* explizit klickbar */
+}
+.center-btn:hover { background: rgba(56,189,248,.9); color: #020617; }
+.center-btn:active { transform: translateY(1px); }
+
+/* (Legacy, unbenutzt) */
+.line { 
+  height: 3px; 
+  border-radius: 99px; 
+  position: absolute; 
+  transform-origin: left center; 
+  opacity: .9; 
+  z-index: 1; 
+}
+
+/* ===================================================== */
+/* ======   Ergänzungen für Teams/kleine Tabs   ======== */
+/* ===================================================== */
+
+/* Header scrollbar + Reihenfolge: Visualize zwischen Add Task & Edit */
+.topbar{ overflow-x:auto; white-space:nowrap; }
+.topbar > .project-input{ order:0; }
+.topbar > .btn{ order:1; }                             /* Add Task */
+.topbar > .view-switch:last-of-type{ order:2; }        /* Visualize */
+.topbar > .view-switch:first-of-type{ order:1.5; }     /* Edit: zwischen Add Task (1) und Visualize (2) */
+
+/* DevBar mittig unten; überschreibt Inline-Pos mit !important */
+.devbar{
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: 24px !important;
+  transform: translateX(-50%);
+  z-index: 20000;
+}
+
+/* Etwas kompakter auf schmalen Tabs */
+@media (max-width: 1100px){
+  .project-input{ min-width: 200px; }
+  .btn, .view-btn{ padding: .38rem .65rem; font-size: .82rem; }
+}
+@media (max-width: 820px){
+  .project-input{ min-width: 160px; }
+  .devbar{ bottom: 90px !important; transform: translateX(-50%) scale(.95); }
+}
+@media (max-height: 680px){
+  .devbar{ bottom: 70px !important; }
+}
