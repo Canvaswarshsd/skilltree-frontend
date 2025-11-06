@@ -217,7 +217,7 @@ export default function App() {
     const d = vDrag.current;
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
-    const dy = e.clientY - d.startClient.y;
+       const dy = e.clientY - d.startClient.y;
     setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
   function onNodePointerUp() {
@@ -383,19 +383,25 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <input
-          className="project-input"
-          value={projectTitle}
-          onChange={(e) => setProjectTitle(e.target.value)}
-          placeholder="Project title..."
-        />
+        {/* Horizontaler Scroller: alle Controls außer Save */}
+        <div className="topbar-scroll">
+          <input
+            className="project-input"
+            value={projectTitle}
+            onChange={(e) => setProjectTitle(e.target.value)}
+            placeholder="Project title..."
+          />
 
-        <button className="btn" onClick={addTask}>Add Task</button>
-        <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">
-          Remove Task
-        </button>
-        <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
+          <button className="btn" onClick={addTask}>Add Task</button>
+          <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">
+            Remove Task
+          </button>
+          <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
 
+          <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
+        </div>
+
+        {/* Save außerhalb des Scrollers – Dropdown darf nach unten aufklappen */}
         <div className="save-wrap">
           <button className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
           {saveOpen && (
@@ -405,8 +411,6 @@ export default function App() {
             </div>
           )}
         </div>
-
-        <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
       </header>
 
       {view === "map" && (
@@ -567,18 +571,16 @@ function Row({
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
 
-        /* NEU: Desktop darf überall (außer im Titel) sofort Drag starten */
+        /* Desktop: überall (außer im Titel) sofort Drag starten */
         onPointerDown={(e) => {
           const target = e.target as HTMLElement;
           const inInput = target.closest(".task-input");
           if (inInput) return;
 
           if (e.pointerType === "mouse") {
-            // Desktop: sofortiger Drag auf gesamter Zeile
             startDrag(task.id);
           } else {
-            // Touch/Pen: hier NICHT starten -> nur die Handle-Zonen
-            // (Scrolling bleibt so unverfälscht)
+            // Touch/Pen: Drag nur über die Handle-Zonen (Scroll bleibt sauber)
           }
         }}
 

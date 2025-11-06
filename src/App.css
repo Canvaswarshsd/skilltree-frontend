@@ -17,7 +17,7 @@ html, body { overflow: hidden; }
 /* Drag state */
 .dragging-global, .dragging-global * { user-select: none !important; cursor: grabbing !important; }
 
-/* Topbar – jetzt horizontal scrollbar auf Mobile */
+/* Topbar: Container selbst lässt vertikal überlappen; horizontaler Scroller innen */
 .topbar { 
   position: sticky; top: 0; z-index: 1000;
   display: flex; gap: .75rem; align-items: center;
@@ -25,11 +25,19 @@ html, body { overflow: hidden; }
   border-bottom: 1px solid rgba(255,255,255,.08); 
   background: rgba(2,6,23,.9);
 
-  overflow-x: auto;               /* NEU: horizontal scrollen */
+  overflow: visible;                 /* WICHTIG: Dropdown darf nach unten überlappen */
+}
+
+/* Innerer horizontaler Scroller (nur X) */
+.topbar-scroll{
+  display: flex; gap: .75rem; align-items: center;
+  overflow-x: auto;                  /* nur horizontal scrollen */
+  overflow-y: visible;               /* NICHT vertikal abschneiden */
   -webkit-overflow-scrolling: touch;
   flex-wrap: nowrap;
+  max-width: 100%;
 }
-.topbar > * { flex: 0 0 auto; }   /* NEU: Kinder nicht schrumpfen lassen */
+.topbar-scroll > * { flex: 0 0 auto; }  /* Items nicht schrumpfen */
 
 /* Sichtbarer Project Title */
 .project-input { 
@@ -85,7 +93,7 @@ html, body { overflow: hidden; }
   box-shadow: 0 12px 36px rgba(0,0,0,.35);
   padding: .35rem;
   min-width: 160px;
-  z-index: 2000;
+  z-index: 2000;                     /* über allem in der Topbar */
 }
 .save-item {
   display: block; width: 100%; text-align: left;
