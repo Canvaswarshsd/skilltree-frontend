@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import DevBar from "./DevBar";
 
 /* ---------- Types ---------- */
 type Task = {
@@ -80,6 +79,28 @@ export default function App() {
     setTasks(prev => prev.map(t => (t.id === id ? { ...t, title } : t)));
   };
 
+  /* ---- Remove Task (Gegenstück zu Add): löscht die zuletzt hinzugefügte Task inkl. aller Kinder ---- */
+  function collectSubtreeIds(list: Task[], rootId: string): Set<string> {
+    const out = new Set<string>([rootId]);
+    const queue = [rootId];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const t of list) {
+        if (t.parentId === cur && !out.has(t.id)) {
+          out.add(t.id);
+          queue.push(t.id);
+        }
+      }
+    }
+    return out;
+  }
+  const removeLastTask = () => {
+    if (tasks.length === 0) return;
+    const lastTask = tasks[tasks.length - 1];
+    const toRemove = collectSubtreeIds(tasks, lastTask.id);
+    setTasks(prev => prev.filter(t => !toRemove.has(t.id)));
+  };
+
   /* ---------- Edit: Pointer-basierte DnD-State ---------- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -129,10 +150,7 @@ export default function App() {
     };
   }, [hoverId]);
 
-  /* ---------- MOBILE SUPPORT: Edit-DnD Zielerkennung ohne Hover ----------
-     Während eines Drags (Edit-Ansicht) ermitteln wir das Element unter dem Finger
-     per elementFromPoint und setzen hoverId entsprechend. So funktioniert Reparenting
-     1:1 auch auf Touch (kein :hover nötig). */
+  /* ---------- MOBILE SUPPORT: Edit-DnD Zielerkennung ohne Hover ---------- */
   useEffect(() => {
     const onDocPointerMoveEdit = (e: PointerEvent) => {
       if (view !== "edit") return;
@@ -141,7 +159,6 @@ export default function App() {
       if (!el) { setHoverId(null); return; }
       const row = el.closest?.(".task-row") as HTMLElement | null;
       const targetId = row?.dataset?.taskId || null;
-      // Nur droppbar, wenn keine Zyklen etc. – das prüft Row optisch; hier brauchen wir nur die ID
       setHoverId(targetId);
     };
     window.addEventListener("pointermove", onDocPointerMoveEdit, { passive: true });
@@ -207,8 +224,6 @@ export default function App() {
   };
 
   /* ---------- MOBILE SUPPORT: Map-Pan & Pinch via Pointer-Events ---------- */
-
-  // Aktive Pointer für Pinch
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinching = useRef(false);
   const pinchStart = useRef<{ dist: number; cx: number; cy: number; startScale: number } | null>(null);
@@ -221,29 +236,23 @@ export default function App() {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
 
-  /* Panning handlers (Visualize) — jetzt Pointer-Events */
   const onPointerDownMap = (e: React.PointerEvent) => {
-    // Wenn ein Node gezogen wird, nicht pannen.
     if (nodeDragging.current) return;
 
-    // Pointer registrieren
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.current.size === 2) {
-      // Pinch starten
       const [p1, p2] = Array.from(activePointers.current.values());
       const dist = distance(p1, p2);
       const m = midpoint(p1, p2);
       pinching.current = true;
       pinchStart.current = { dist, cx: m.x, cy: m.y, startScale: scale };
-      panning.current = false; // während Pinch kein Pan
+      panning.current = false;
     } else if (activePointers.current.size === 1) {
-      // Ein-Finger-Pan
       panning.current = true;
       last.current = { x: e.clientX, y: e.clientY };
     }
 
-    // Browser-Gesten (Scroll/Zoom) abschalten innerhalb der Map
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     e.preventDefault();
   };
@@ -260,7 +269,6 @@ export default function App() {
       if (!start) return;
       const raw = start.startScale * (distNow / (start.dist || 1));
       const next = Math.min(MAX_Z, Math.max(MIN_Z, raw));
-      // Pivot an aktuellem Mittelpunkt – hält Inhalt unter den Fingern stabil
       zoomAt(m.x, m.y, next);
       e.preventDefault();
       return;
@@ -294,11 +302,9 @@ export default function App() {
     const cx = clientX - rect.left;
     const cy = clientY - rect.top;
 
-    // Weltkoords vor Zoom
     const wx = (cx - pan.x) / scale;
     const wy = (cy - pan.y) / scale;
 
-    // Neues Pan, damit der gleiche Weltpunkt unterm Cursor bleibt
     const newPanX = cx - wx * nextScale;
     const newPanY = cy - wy * nextScale;
 
@@ -308,13 +314,13 @@ export default function App() {
 
   const onWheel = (e: React.WheelEvent) => {
     if (view !== "map") return;
-    e.preventDefault();                 // Browser-Scroll unterbinden (innerhalb der Map)
+    e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     const target = Math.min(MAX_Z, Math.max(MIN_Z, scale * factor));
     zoomAt(e.clientX, e.clientY, target);
   };
 
-  /* Safari-Pinch zu Map-Zoom mappen */
+  /* Safari-Pinch Fallback */
   useEffect(() => {
     const onGestureChange = (ev: any) => {
       if (view !== "map") return;
@@ -340,7 +346,7 @@ export default function App() {
       if (!insideMap) ev.preventDefault();
     };
     const onKeyDown = (ev: KeyboardEvent) => {
-      if ((ev.ctrlKey || ev.metaKey) && (ev.key === "+" || ev.key === "-" || ev.key === "=" || ev.key === "0")) {
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === "+" || ev.key === "-" || ev.key === "0" || ev.key === "=")) {
         ev.preventDefault();
       }
     };
@@ -358,6 +364,12 @@ export default function App() {
     setPan({ x: 0, y: 0 });
   };
 
+  /* ---------- Save / Save As UI (Stub; Funktionalität verdrahten wir später) ---------- */
+  const [saveOpen, setSaveOpen] = useState(false);
+  const toggleSaveMenu = () => setSaveOpen(v => !v);
+  const doSave = () => { setSaveOpen(false); alert("Save (Stub) – verbinden wir später mit Local/Teams."); };
+  const doSaveAs = () => { setSaveOpen(false); alert("Save As… (Stub) – Dialog folgt später."); };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -367,13 +379,26 @@ export default function App() {
           onChange={(e) => setProjectTitle(e.target.value)}
           placeholder="Project title..."
         />
+
+        {/* Buttons in gewünschter Reihenfolge */}
         <button className="btn" onClick={addTask}>Add Task</button>
-        <div className="view-switch">
-          <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
+        <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">
+          Remove Task
+        </button>
+        <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
+
+        <div className="save-wrap">
+          <button className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
+          {saveOpen && (
+            <div className="save-menu" role="menu" onMouseLeave={() => setSaveOpen(false)}>
+              <button className="save-item" onClick={doSave}>Save</button>
+              <button className="save-item" onClick={doSaveAs}>Save As…</button>
+            </div>
+          )}
         </div>
-        <div className="view-switch">
-          <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
-        </div>
+
+        {/* Edit-Toggle bleibt optional – hier als simples Button links nicht aktiv/aktiv */}
+        <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
       </header>
 
       {/* Center-Button fest über der Map (nicht skaliert) */}
@@ -409,7 +434,6 @@ export default function App() {
           <div
             className="skillmap-wrapper"
             ref={wrapperRef}
-            // WICHTIG: Pointer-Events für Mobile
             style={{ touchAction: "none" }}
             onPointerDown={onPointerDownMap}
             onPointerMove={onPointerMoveMap}
@@ -428,7 +452,6 @@ export default function App() {
               <div className="map-origin">
                 {/* ----- LINES (SVG) ----- */}
                 <svg className="map-svg" viewBox="-2000 -2000 4000 4000">
-                  {/* roots -> center (mit individuellen Offsets) */}
                   {roots.map((root, i) => {
                     const total = Math.max(roots.length, 1);
                     const ang = (i / total) * Math.PI * 2;
@@ -443,8 +466,6 @@ export default function App() {
                       <line key={`root-line-${root.id}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="3" strokeLinecap="round"/>
                     );
                   })}
-
-                  {/* recursive children lines — Fächer-Layout + Offsets */}
                   {roots.flatMap((root, i) => {
                     const total = Math.max(roots.length, 1);
                     const ang = (i / total) * Math.PI * 2;
@@ -493,9 +514,6 @@ export default function App() {
           </div>
         )}
       </div>
-
-      {/* Debug/Dev-Leiste für Health/Save/Load */}
-      <DevBar />
     </div>
   );
 }
@@ -521,14 +539,13 @@ function Row({
       <div
         className={`task-row ${isDroppable(draggingId) && hoverId === task.id ? "drop-hover" : ""} ${draggingId === task.id ? "dragging-row" : ""}`}
         style={{ paddingLeft: depth * 28 + "px" }}
-        data-task-id={task.id} /* MOBILE SUPPORT: für elementFromPoint-Zielerkennung */
+        data-task-id={task.id}
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
         onPointerDown={(e) => {
-          // Desktop: nur LMB; Touch: button ist ebenfalls 0 – passt.
           if (e.button !== 0) return;
           const inInput = (e.target as HTMLElement).closest(".task-input");
-          if (inInput) return; // Klick in Input = Rename, kein Drag
+          if (inInput) return;
           e.preventDefault();
           startDrag(task.id);
         }}
