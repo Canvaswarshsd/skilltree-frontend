@@ -15,7 +15,7 @@ function makeId() {
 /* Colors for root branches (inherited by descendants) */
 const BRANCH_COLORS = ["#f97316", "#6366f1", "#22c55e", "#eab308", "#0ea5e9", "#f43f5e"];
 
-/* Node radii (match visual sizes incl. slight border overlap) */
+/* Node radii */
 const R_CENTER = 75;
 const R_ROOT   = 60;
 const R_CHILD  = 50;
@@ -217,7 +217,7 @@ export default function App() {
     const d = vDrag.current;
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
-       const dy = e.clientY - d.startClient.y;
+    const dy = e.clientY - d.startClient.y;
     setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
   function onNodePointerUp() {
@@ -383,7 +383,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        {/* Horizontaler Scroller: alle Controls außer Save */}
+        {/* Horizontaler Scroller: jetzt inkl. Save */}
         <div className="topbar-scroll">
           <input
             className="project-input"
@@ -398,18 +398,17 @@ export default function App() {
           </button>
           <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
 
-          <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
-        </div>
+          <div className="save-wrap">
+            <button className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
+            {saveOpen && (
+              <div className="save-menu" role="menu" onMouseLeave={() => setSaveOpen(false)}>
+                <button className="save-item" onClick={doSave}>Save</button>
+                <button className="save-item" onClick={doSaveAs}>Save As…</button>
+              </div>
+            )}
+          </div>
 
-        {/* Save außerhalb des Scrollers – Dropdown darf nach unten aufklappen */}
-        <div className="save-wrap">
-          <button className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
-          {saveOpen && (
-            <div className="save-menu" role="menu" onMouseLeave={() => setSaveOpen(false)}>
-              <button className="save-item" onClick={doSave}>Save</button>
-              <button className="save-item" onClick={doSaveAs}>Save As…</button>
-            </div>
-          )}
+          <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
         </div>
       </header>
 
@@ -571,7 +570,6 @@ function Row({
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
 
-        /* Desktop: überall (außer im Titel) sofort Drag starten */
         onPointerDown={(e) => {
           const target = e.target as HTMLElement;
           const inInput = target.closest(".task-input");
@@ -579,30 +577,20 @@ function Row({
 
           if (e.pointerType === "mouse") {
             startDrag(task.id);
-          } else {
-            // Touch/Pen: Drag nur über die Handle-Zonen (Scroll bleibt sauber)
           }
         }}
 
         onPointerUp={handlePointerUpAnywhere}
       >
-        {/* Linke Drag-Zone (Mobile-Handle) */}
         <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
-
-        {/* Bullet – darf auch als Griff dienen */}
         <span className="task-bullet" onPointerDown={handlePointerDownDragZone} />
-
-        {/* Titel – Tippen = Rename */}
         <input
           className="task-input"
           value={task.title}
           onChange={(e) => renameTask(task.id, e.target.value)}
           placeholder="Task title…"
         />
-
         {task.parentId && <span className="task-parent-label">child</span>}
-
-        {/* Rechte Drag-Zone (Mobile-Handle) */}
         <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
