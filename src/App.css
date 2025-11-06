@@ -119,10 +119,6 @@ html, body { overflow: hidden; }
   margin-bottom: .45rem;
   cursor: default;
   touch-action: pan-y;                  /* Scroll erlaubt, aber horizontal blockiert */
-
-  /* >>> EINZIGE RELEVANTE NEUE ZEILE:
-     Basiseinrückung wie bisherige Unteraufgabe (28px) */
-  margin-left: 28px;
 }
 .task-row::after {
   content: "";
