@@ -17,14 +17,19 @@ html, body { overflow: hidden; }
 /* Drag state */
 .dragging-global, .dragging-global * { user-select: none !important; cursor: grabbing !important; }
 
-/* Topbar */
+/* Topbar – jetzt horizontal scrollbar auf Mobile */
 .topbar { 
   position: sticky; top: 0; z-index: 1000;
   display: flex; gap: .75rem; align-items: center;
   padding: .75rem 1.25rem; 
   border-bottom: 1px solid rgba(255,255,255,.08); 
   background: rgba(2,6,23,.9);
+
+  overflow-x: auto;               /* NEU: horizontal scrollen */
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
 }
+.topbar > * { flex: 0 0 auto; }   /* NEU: Kinder nicht schrumpfen lassen */
 
 /* Sichtbarer Project Title */
 .project-input { 
@@ -162,20 +167,17 @@ html, body { overflow: hidden; }
   box-shadow: 0 0 0 2px rgba(56,189,248,.25) inset;
 }
 
-/* ===== NEW: Drag-Handles links & rechts ===== */
+/* ===== Drag-Handles links & rechts (für Mobile) ===== */
 .drag-handle {
   position: absolute;
   top: 0; bottom: 0;
-  width: 56px;                 /* spürbare Fläche */
+  width: 56px;
   z-index: 3;
-  touch-action: none;          /* in der Handle-Zone kein Scroll, nur Gesture */
+  touch-action: none;
   cursor: grab;
-  /* optional: debug sichtbar machen
-  background: rgba(255,0,0,.1);
-  */
 }
-.drag-handle.left  { left: 6px; }       /* nicht am Rand kleben */
-.drag-handle.right { right: 28px; }     /* kollidiert nicht mit dem ::after-Kästchen */
+.drag-handle.left  { left: 6px; }
+.drag-handle.right { right: 28px; }
 
 /* Map */
 .skillmap-wrapper { 

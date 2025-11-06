@@ -16,13 +16,13 @@ function makeId() {
 const BRANCH_COLORS = ["#f97316", "#6366f1", "#22c55e", "#eab308", "#0ea5e9", "#f43f5e"];
 
 /* Node radii (match visual sizes incl. slight border overlap) */
-const R_CENTER = 75;  // 150px center circle
-const R_ROOT   = 60;  // 120px root circle
-const R_CHILD  = 50;  // 100px child circle
+const R_CENTER = 75;
+const R_ROOT   = 60;
+const R_CHILD  = 50;
 
 /* Layout distances */
-const ROOT_RADIUS = 280; // Abstand Root-Knoten vom Zentrum
-const RING        = 130; // Abstand Kinder vom Parent
+const ROOT_RADIUS = 280;
+const RING        = 130;
 
 /* ---------- Geometry helpers ---------- */
 function segmentBetweenCircles(
@@ -106,7 +106,7 @@ export default function App() {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
 
-  // Gesten-Vorbereitung (für Scroll vs. Drag)
+  // Gesten-Vorbereitung
   const editGesture = useRef<{
     pointerId: number;
     rowEl: HTMLElement;
@@ -115,7 +115,7 @@ export default function App() {
     started: boolean;
     taskId: string;
   } | null>(null);
-  const DRAG_THRESHOLD = 8; // px
+  const DRAG_THRESHOLD = 8;
   const LONGPRESS_MS = 300;
 
   function startDrag(id: string) {
@@ -146,7 +146,6 @@ export default function App() {
     finishDrag();
   }
 
-  /* Global pointer-up/cancel für Edit-DnD */
   useEffect(() => {
     function onPointerUp(e: PointerEvent) {
       if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
@@ -170,12 +169,10 @@ export default function App() {
     };
   }, [hoverId]);
 
-  // Zielerkennung + Threshold-Start (Touch/Mouse)
   useEffect(() => {
     const onDocPointerMoveEdit = (e: PointerEvent) => {
       if (view !== "edit") return;
 
-      // 1) Threshold prüfen – Drag erst dann starten
       if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
         const dx = e.clientX - editGesture.current.startX;
         const dy = e.clientY - editGesture.current.startY;
@@ -187,7 +184,6 @@ export default function App() {
         }
       }
 
-      // 2) Während Drag: Ziel unter dem Finger finden
       if (!draggingRef.current) return;
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
       if (!el) { setHoverId(null); return; }
@@ -200,7 +196,7 @@ export default function App() {
     return () => window.removeEventListener("pointermove", onDocPointerMoveEdit);
   }, [view]);
 
-  /* ---------- Visualize: manuelle Node-Offsets + Node-Drag ---------- */
+  /* ---------- Visualize: Node-Drag ---------- */
   const [nodeOffset, setNodeOffset] = useState<Record<string, { x: number; y: number }>>({});
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
   const setOffset = (id: string, x: number, y: number) =>
@@ -247,12 +243,12 @@ export default function App() {
     setView("map");
   };
 
-  /* ---------- MOBILE SUPPORT: Map-Pan & Pinch via Pointer-Events ---------- */
+  /* ---------- Map: Pan/Pinch ---------- */
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinching = useRef(false);
   const pinchStart = useRef<{ dist: number; cx: number; cy: number; startScale: number } | null>(null);
 
-  function distance(a: {x:number;y:number}, b:{x:number;y:number}) {
+  function distance(a:{x:number;y:number}, b:{x:number;y:number}) {
     const dx = a.x - b.x, dy = a.y - b.y;
     return Math.hypot(dx, dy);
   }
@@ -262,7 +258,6 @@ export default function App() {
 
   const onPointerDownMap = (e: React.PointerEvent) => {
     if (nodeDragging.current) return;
-
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.current.size === 2) {
@@ -318,20 +313,15 @@ export default function App() {
     }
   };
 
-  /* Zoom unter Cursor (Mausrad/Pinch) */
   function zoomAt(clientX: number, clientY: number, nextScale: number) {
     const rect = wrapperRef.current?.getBoundingClientRect();
     if (!rect) { setScale(nextScale); return; }
-
     const cx = clientX - rect.left;
     const cy = clientY - rect.top;
-
     const wx = (cx - pan.x) / scale;
     const wy = (cy - pan.y) / scale;
-
     const newPanX = cx - wx * nextScale;
     const newPanY = cy - wy * nextScale;
-
     setScale(nextScale);
     setPan({ x: newPanX, y: newPanY });
   }
@@ -361,7 +351,7 @@ export default function App() {
     return () => window.removeEventListener("gesturechange", onGestureChange);
   }, [scale, view, pan]);
 
-  /* ---------- GLOBAL: Website-Zoom deaktivieren (außerhalb der Map) ---------- */
+  /* ---------- Website-Zoom blocken ---------- */
   useEffect(() => {
     const onGlobalWheel = (ev: WheelEvent) => {
       if (!ev.ctrlKey) return;
@@ -382,16 +372,12 @@ export default function App() {
     };
   }, []);
 
-  /* Center: Zoom + Pan zurücksetzen (Standardansicht) */
-  const resetView = () => {
-    setScale(1);
-    setPan({ x: 0, y: 0 });
-  };
+  const resetView = () => { setScale(1); setPan({ x: 0, y: 0 }); };
 
-  /* ---------- Save / Save As UI (Stub) ---------- */
+  /* Save (Stub) */
   const [saveOpen, setSaveOpen] = useState(false);
   const toggleSaveMenu = () => setSaveOpen(v => !v);
-  const doSave = () => { setSaveOpen(false); alert("Save (Stub) – verbinden wir später mit Local/Teams."); };
+  const doSave   = () => { setSaveOpen(false); alert("Save (Stub) – verbinden wir später mit Local/Teams."); };
   const doSaveAs = () => { setSaveOpen(false); alert("Save As… (Stub) – Dialog folgt später."); };
 
   return (
@@ -549,29 +535,13 @@ function Row({
     !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
 
   const longPressTimer = useRef<number | null>(null);
-
-  const clearTimer = () => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
+  const clearTimer = () => { if (longPressTimer.current !== null) { window.clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
 
   const handlePointerDownDragZone = (e: React.PointerEvent) => {
-    // nur in Handle-Zonen Drag initiieren (zentraler Text bleibt Rename/Scroll)
-    const rowEl = e.currentTarget.parentElement as HTMLElement; // .task-row
+    const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement; // .task-row
     const id = rowEl.dataset.taskId!;
-    editGesture.current = {
-      pointerId: e.pointerId,
-      rowEl,
-      startX: e.clientX,
-      startY: e.clientY,
-      started: false,
-      taskId: id,
-    };
+    editGesture.current = { pointerId: e.pointerId, rowEl, startX: e.clientX, startY: e.clientY, started: false, taskId: id };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-
-    // Long-press startet Drag auch ohne Bewegung
     clearTimer();
     longPressTimer.current = window.setTimeout(() => {
       if (editGesture.current && !editGesture.current.started) {
@@ -582,7 +552,6 @@ function Row({
   };
 
   const handlePointerUpAnywhere = (e: React.PointerEvent) => {
-    // Timer aufräumen, falls Drag nicht gestartet wurde
     clearTimer();
     if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
       editGesture.current = null;
@@ -597,15 +566,31 @@ function Row({
         data-task-id={task.id}
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
+
+        /* NEU: Desktop darf überall (außer im Titel) sofort Drag starten */
+        onPointerDown={(e) => {
+          const target = e.target as HTMLElement;
+          const inInput = target.closest(".task-input");
+          if (inInput) return;
+
+          if (e.pointerType === "mouse") {
+            // Desktop: sofortiger Drag auf gesamter Zeile
+            startDrag(task.id);
+          } else {
+            // Touch/Pen: hier NICHT starten -> nur die Handle-Zonen
+            // (Scrolling bleibt so unverfälscht)
+          }
+        }}
+
         onPointerUp={handlePointerUpAnywhere}
       >
-        {/* Linke Drag-Zone */}
+        {/* Linke Drag-Zone (Mobile-Handle) */}
         <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
 
-        {/* Bullet (kann ebenfalls als Griff dienen) */}
+        {/* Bullet – darf auch als Griff dienen */}
         <span className="task-bullet" onPointerDown={handlePointerDownDragZone} />
 
-        {/* Titel: Tap = Rename (kein Drag) */}
+        {/* Titel – Tippen = Rename */}
         <input
           className="task-input"
           value={task.title}
@@ -615,7 +600,7 @@ function Row({
 
         {task.parentId && <span className="task-parent-label">child</span>}
 
-        {/* Rechte Drag-Zone */}
+        {/* Rechte Drag-Zone (Mobile-Handle) */}
         <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
@@ -638,7 +623,7 @@ function Row({
   );
 }
 
-/* ---------- Visualize: rekursives Zeichnen (LINES) mit Offsets ---------- */
+/* ---------- Visualize helpers ---------- */
 function renderChildLinesWithOffsets(
   parentId: string,
   px: number, py: number, pr: number,
@@ -677,7 +662,6 @@ function renderChildLinesWithOffsets(
   return lines;
 }
 
-/* ---------- Visualize: rekursives Zeichnen (NODES) mit Offsets ---------- */
 function renderChildNodesWithOffsets(
   parentId: string,
   px: number, py: number,
@@ -722,4 +706,3 @@ function renderChildNodesWithOffsets(
 
   return nodes;
 }
-
