@@ -79,7 +79,7 @@ export default function App() {
     setTasks(prev => prev.map(t => (t.id === id ? { ...t, title } : t)));
   };
 
-  /* ---- Remove Task (letztes Element inkl. Subtree) ---- */
+  /* ---- Remove Task ---- */
   function collectSubtreeIds(list: Task[], rootId: string): Set<string> {
     const out = new Set<string>([rootId]);
     const queue = [rootId];
@@ -105,6 +105,17 @@ export default function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
+
+  // Gesten-Vorbereitung (für Scroll vs. Drag)
+  const editGesture = useRef<{
+    pointerId: number;
+    rowEl: HTMLElement;
+    startX: number;
+    startY: number;
+    started: boolean;
+    taskId: string;
+  } | null>(null);
+  const DRAG_THRESHOLD = 8; // px
 
   function startDrag(id: string) {
     draggingRef.current = id;
@@ -134,14 +145,23 @@ export default function App() {
     finishDrag();
   }
 
-  /* Global pointer-up für Edit-DnD */
+  /* Global pointer-up/cancel für Edit-DnD */
   useEffect(() => {
-    function onPointerUp() {
+    function onPointerUp(e: PointerEvent) {
+      // Falls Drag nie gestartet wurde: nur Geste aufräumen
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
+        editGesture.current = null;
+      }
       if (!draggingRef.current) return;
       if (hoverId) dropOn(hoverId);
       else dropToRoot();
     }
-    function onPointerCancel() { if (draggingRef.current) finishDrag(); }
+    function onPointerCancel(e: PointerEvent) {
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId) {
+        editGesture.current = null;
+      }
+      if (draggingRef.current) finishDrag();
+    }
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
     return () => {
@@ -150,10 +170,25 @@ export default function App() {
     };
   }, [hoverId]);
 
-  /* Zielerkennung ohne Hover (Touch) */
+  // Zielerkennung + Threshold-Start (Touch/Mouse)
   useEffect(() => {
     const onDocPointerMoveEdit = (e: PointerEvent) => {
       if (view !== "edit") return;
+
+      // 1) Threshold prüfen – Drag erst dann starten
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
+        const dx = e.clientX - editGesture.current.startX;
+        const dy = e.clientY - editGesture.current.startY;
+        if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+          // Drag starten
+          editGesture.current.rowEl.setPointerCapture?.(editGesture.current.pointerId);
+          e.preventDefault();
+          startDrag(editGesture.current.taskId);
+          editGesture.current.started = true;
+        }
+      }
+
+      // 2) Während Drag: Ziel unter dem Finger finden
       if (!draggingRef.current) return;
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
       if (!el) { setHoverId(null); return; }
@@ -161,16 +196,18 @@ export default function App() {
       const targetId = row?.dataset?.taskId || null;
       setHoverId(targetId);
     };
+
     window.addEventListener("pointermove", onDocPointerMoveEdit, { passive: true });
     return () => window.removeEventListener("pointermove", onDocPointerMoveEdit);
   }, [view]);
 
-  /* ---------- Visualize: Node-Offsets + Node-Drag ---------- */
+  /* ---------- Visualize: manuelle Node-Offsets + Node-Drag ---------- */
   const [nodeOffset, setNodeOffset] = useState<Record<string, { x: number; y: number }>>({});
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset(prev => ({ ...prev, [id]: { x, y } }));
 
+  // Node-Drag-Session
   const vDrag = useRef<{
     id: string;
     startClient: { x: number; y: number };
@@ -221,7 +258,7 @@ export default function App() {
     setView("map");
   };
 
-  /* ---------- Map: Pan & Pinch ---------- */
+  /* ---------- MOBILE SUPPORT: Map-Pan & Pinch via Pointer-Events ---------- */
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinching = useRef(false);
   const pinchStart = useRef<{ dist: number; cx: number; cy: number; startScale: number } | null>(null);
@@ -378,7 +415,6 @@ export default function App() {
           placeholder="Project title..."
         />
 
-        {/* Buttons */}
         <button className="btn" onClick={addTask}>Add Task</button>
         <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">
           Remove Task
@@ -398,15 +434,8 @@ export default function App() {
         <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
       </header>
 
-      {/* Center-Button */}
       {view === "map" && (
-        <button
-          className="center-btn"
-          onClick={resetView}
-          aria-label="Center"
-        >
-          Center
-        </button>
+        <button className="center-btn" onClick={resetView} aria-label="Center">Center</button>
       )}
 
       <div className="body">
@@ -422,8 +451,12 @@ export default function App() {
                 draggingId={draggingId}
                 hoverId={hoverId}
                 setHoverId={setHoverId}
-                startDrag={startDrag}
+                startDrag={(id) => {
+                  // Wird von Gesture-Start aufgerufen
+                  startDrag(id);
+                }}
                 renameTask={renameTask}
+                editGesture={editGesture}
               />
             ))}
           </div>
@@ -438,16 +471,11 @@ export default function App() {
             onPointerCancel={onPointerUpMap}
             onWheel={onWheel}
           >
-            {/* Skaliert und gepannt: nur die Map selbst */}
             <div
               className="map-pan"
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-                transformOrigin: "0 0"
-              }}
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: "0 0" }}
             >
               <div className="map-origin">
-                {/* ----- LINES (SVG) ----- */}
                 <svg className="map-svg" viewBox="-2000 -2000 4000 4000">
                   {roots.map((root, i) => {
                     const total = Math.max(roots.length, 1);
@@ -476,7 +504,6 @@ export default function App() {
                   })}
                 </svg>
 
-                {/* ----- NODES (DIVs) ----- */}
                 <div className="skill-node center-node" lang={document.documentElement.lang || navigator.language || "en"}>
                   {projectTitle || "Project"}
                 </div>
@@ -517,7 +544,7 @@ export default function App() {
 
 /* ----- Edit row (recursive) ----- */
 function Row({
-  task, depth, tasks, draggingId, hoverId, setHoverId, startDrag, renameTask,
+  task, depth, tasks, draggingId, hoverId, setHoverId, startDrag, renameTask, editGesture
 }: {
   task: Task; depth: number; tasks: Task[];
   draggingId: string | null;
@@ -525,9 +552,11 @@ function Row({
   setHoverId: (id: string | null) => void;
   startDrag: (id: string) => void;
   renameTask: (id: string, title: string) => void;
+  editGesture: React.MutableRefObject<{
+    pointerId: number; rowEl: HTMLElement; startX: number; startY: number; started: boolean; taskId: string;
+  } | null>;
 }) {
   const children = tasks.filter(t => t.parentId === task.id);
-
   const isDroppable = (srcId: string | null) =>
     !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
 
@@ -542,24 +571,17 @@ function Row({
         onPointerDown={(e) => {
           const target = e.target as HTMLElement;
           const inInput = target.closest(".task-input");
-          if (inInput) return; // Textfeld = Rename
+          if (inInput) return; // Textfeld = Rename, kein Drag
 
-          // Drag nur über: Bullet links ODER rechten Handle-Bereich (~44px)
-          const row = e.currentTarget as HTMLElement;
-          const rect = row.getBoundingClientRect();
-          const offsetX = e.clientX - rect.left;
-          const atRightHandle = rect.width - offsetX <= 44;
-          const onBullet = !!target.closest(".task-bullet");
-
-          if (!(onBullet || atRightHandle)) {
-            // Kein Drag-Handle → Scroll erlauben
-            return;
-          }
-
-          // Start Drag
-          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-          e.preventDefault();
-          startDrag(task.id);
+          // Gestenstart vormerken (Scroll bleibt erlaubt, kein preventDefault)
+          editGesture.current = {
+            pointerId: e.pointerId,
+            rowEl: e.currentTarget as HTMLElement,
+            startX: e.clientX,
+            startY: e.clientY,
+            started: false,
+            taskId: task.id,
+          };
         }}
       >
         <span className="task-bullet" />
@@ -583,6 +605,7 @@ function Row({
           setHoverId={setHoverId}
           startDrag={startDrag}
           renameTask={renameTask}
+          editGesture={editGesture}
         />
       ))}
     </>

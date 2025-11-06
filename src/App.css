@@ -28,18 +28,25 @@ html, body { overflow: hidden; }
 
 /* Sichtbarer Project Title */
 .project-input { 
-  background: rgba(15,23,42,.55);
-  border: 1px solid rgba(255,255,255,.28);
+  background: rgba(15,23,42,.7);
+  border: 1px solid rgba(255,255,255,.4);
   border-radius: .55rem;
-  padding: .5rem .75rem;
+  padding: .55rem .8rem;
   color: #fff;
   min-width: 260px;
-  box-shadow: 0 0 0 2px rgba(2,6,23,.15) inset;
+  box-shadow: 0 0 6px rgba(255,255,255,.08), 0 0 0 2px rgba(2,6,23,.25) inset;
+  transition: all .2s ease;
+}
+.project-input:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 6px rgba(56,189,248,.4);
 }
 .project-input::placeholder {
-  color: rgba(255,255,255,.78);
+  color: rgba(255,255,255,.88);
 }
 
+/* Buttons */
 .btn { 
   background: rgba(148,163,184,.18); 
   border: none; 
@@ -91,10 +98,13 @@ html, body { overflow: hidden; }
 
 /* Edit view */
 .task-list { 
-  flex: 1; padding: 1.2rem 1.4rem 2rem; 
-  overflow: auto; 
-  touch-action: auto;
-  -webkit-overflow-scrolling: touch;
+  flex: 1; 
+  padding: 1.2rem 1.4rem 2rem; 
+  overflow-y: auto; 
+  overflow-x: hidden;
+  touch-action: pan-y;                   /* mobiles Scrollen */
+  -webkit-overflow-scrolling: touch; 
+  overscroll-behavior: contain;
 }
 .section-title { font-size: 1rem; margin-bottom: .8rem; opacity: .85; }
 
@@ -108,7 +118,7 @@ html, body { overflow: hidden; }
   display: flex; align-items: center; gap: .6rem;
   margin-bottom: .45rem;
   cursor: default;
-  touch-action: auto;
+  touch-action: pan-y;                  /* Scroll erlaubt, aber horizontal blockiert */
 }
 .task-row::after {
   content: "";
