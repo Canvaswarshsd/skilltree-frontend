@@ -79,7 +79,7 @@ export default function App() {
     setTasks(prev => prev.map(t => (t.id === id ? { ...t, title } : t)));
   };
 
-  /* ---- Remove Task ---- */
+  /* ---- Remove Task (letztes Element inkl. Subtree) ---- */
   function collectSubtreeIds(list: Task[], rootId: string): Set<string> {
     const out = new Set<string>([rootId]);
     const queue = [rootId];
@@ -101,7 +101,7 @@ export default function App() {
     setTasks(prev => prev.filter(t => !toRemove.has(t.id)));
   };
 
-  /* ---------- Edit: Pointer-basierte DnD-State ---------- */
+  /* ---------- Edit: Pointer-DnD ---------- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
@@ -150,7 +150,7 @@ export default function App() {
     };
   }, [hoverId]);
 
-  /* ---------- MOBILE SUPPORT: Edit-DnD Zielerkennung ohne Hover ---------- */
+  /* Zielerkennung ohne Hover (Touch) */
   useEffect(() => {
     const onDocPointerMoveEdit = (e: PointerEvent) => {
       if (view !== "edit") return;
@@ -165,13 +165,12 @@ export default function App() {
     return () => window.removeEventListener("pointermove", onDocPointerMoveEdit);
   }, [view]);
 
-  /* ---------- Visualize: manuelle Node-Offsets + Node-Drag ---------- */
+  /* ---------- Visualize: Node-Offsets + Node-Drag ---------- */
   const [nodeOffset, setNodeOffset] = useState<Record<string, { x: number; y: number }>>({});
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset(prev => ({ ...prev, [id]: { x, y } }));
 
-  // Node-Drag-Session
   const vDrag = useRef<{
     id: string;
     startClient: { x: number; y: number };
@@ -222,7 +221,7 @@ export default function App() {
     setView("map");
   };
 
-  /* ---------- MOBILE SUPPORT: Map-Pan & Pinch via Pointer-Events ---------- */
+  /* ---------- Map: Pan & Pinch ---------- */
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinching = useRef(false);
   const pinchStart = useRef<{ dist: number; cx: number; cy: number; startScale: number } | null>(null);
@@ -379,7 +378,7 @@ export default function App() {
           placeholder="Project title..."
         />
 
-        {/* Buttons in gewünschter Reihenfolge */}
+        {/* Buttons */}
         <button className="btn" onClick={addTask}>Add Task</button>
         <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">
           Remove Task
@@ -399,7 +398,7 @@ export default function App() {
         <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
       </header>
 
-      {/* Center-Button fest über der Map (nicht skaliert) */}
+      {/* Center-Button */}
       {view === "map" && (
         <button
           className="center-btn"
@@ -541,10 +540,23 @@ function Row({
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
         onPointerDown={(e) => {
-          if (e.button !== 0) return;
-          const inInput = (e.target as HTMLElement).closest(".task-input");
-          if (inInput) return; // Klick ins Input = rename, kein Drag
-          // *** WICHTIG FÜR TOUCH: Capture setzen, damit pointerup sicher ankommt
+          const target = e.target as HTMLElement;
+          const inInput = target.closest(".task-input");
+          if (inInput) return; // Textfeld = Rename
+
+          // Drag nur über: Bullet links ODER rechten Handle-Bereich (~44px)
+          const row = e.currentTarget as HTMLElement;
+          const rect = row.getBoundingClientRect();
+          const offsetX = e.clientX - rect.left;
+          const atRightHandle = rect.width - offsetX <= 44;
+          const onBullet = !!target.closest(".task-bullet");
+
+          if (!(onBullet || atRightHandle)) {
+            // Kein Drag-Handle → Scroll erlauben
+            return;
+          }
+
+          // Start Drag
           (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
           e.preventDefault();
           startDrag(task.id);
@@ -555,6 +567,7 @@ function Row({
           className="task-input"
           value={task.title}
           onChange={(e) => renameTask(task.id, e.target.value)}
+          placeholder="Task title…"
         />
         {task.parentId && <span className="task-parent-label">child</span>}
       </div>
