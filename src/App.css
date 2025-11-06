@@ -30,8 +30,8 @@ html, body { overflow: hidden; }
 /* Innerer horizontaler Scroller – enthält jetzt auch Save */
 .topbar-scroll{
   display: flex; gap: .75rem; align-items: center;
-  overflow-x: auto;                  /* nur horizontal scrollen */
-  overflow-y: visible;               /* vertikal NICHT clippen (für Dropdown) */
+  /* ÄNDERUNG: explizit X:auto, Y:visible, damit kein Vertikal-Scroll beim Dropdown */
+  overflow: auto visible;
   -webkit-overflow-scrolling: touch;
   flex-wrap: nowrap;
   max-width: 100%;
@@ -63,9 +63,11 @@ html, body { overflow: hidden; }
   background: rgba(148,163,184,.18); 
   border: none; 
   border-radius: .5rem; 
-  padding: .45rem .8rem; 
+  /* ÄNDERUNG: Größe an .view-btn angeglichen */
+  padding: .4rem .75rem; 
   color: #fff; 
   font-weight: 600; 
+  font-size: .85rem;
   cursor: pointer; 
 }
 .btn-remove { background: #ef4444; }
