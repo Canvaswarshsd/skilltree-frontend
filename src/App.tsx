@@ -374,16 +374,33 @@ export default function App() {
 
   const resetView = () => { setScale(1); setPan({ x: 0, y: 0 }); };
 
-  /* Save (Stub) */
+  /* Save (Stub) — Option A: fixed dropdown mit exakter Position */
   const [saveOpen, setSaveOpen] = useState(false);
-  const toggleSaveMenu = () => setSaveOpen(v => !v);
+  const saveBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [savePos, setSavePos] = useState<{ top: number; left: number } | null>(null);
+
+  const openSaveMenu = () => {
+    const btn = saveBtnRef.current;
+    if (!btn) { setSaveOpen(v => !v); return; }
+    const r = btn.getBoundingClientRect();
+    // Rechtsbündig unter dem Button, kleiner Abstand (6px)
+    setSavePos({ top: r.bottom + 6, left: r.right });
+    setSaveOpen(true);
+  };
+  const toggleSaveMenu = () => {
+    setSaveOpen(prev => {
+      if (prev) return false;
+      openSaveMenu();
+      return true; // openSaveMenu setzt bereits true, aber wir geben true zurück, um state konsistent zu halten
+    });
+  };
   const doSave   = () => { setSaveOpen(false); alert("Save (Stub) – verbinden wir später mit Local/Teams."); };
   const doSaveAs = () => { setSaveOpen(false); alert("Save As… (Stub) – Dialog folgt später."); };
 
   return (
     <div className="app">
       <header className="topbar">
-        {/* Horizontaler Scroller: jetzt inkl. Save */}
+        {/* Horizontaler Scroller */}
         <div className="topbar-scroll">
           <input
             className="project-input"
@@ -399,9 +416,14 @@ export default function App() {
           <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
 
           <div className="save-wrap">
-            <button className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
-            {saveOpen && (
-              <div className="save-menu" role="menu" onMouseLeave={() => setSaveOpen(false)}>
+            <button ref={saveBtnRef} className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
+            {saveOpen && savePos && (
+              <div
+                className="save-menu"
+                role="menu"
+                style={{ top: savePos.top, left: savePos.left, transform: "translateX(-100%)" }}
+                onMouseLeave={() => setSaveOpen(false)}
+              >
                 <button className="save-item" onClick={doSave}>Save</button>
                 <button className="save-item" onClick={doSaveAs}>Save As…</button>
               </div>

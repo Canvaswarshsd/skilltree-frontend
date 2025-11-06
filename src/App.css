@@ -27,10 +27,10 @@ html, body { overflow: hidden; }
   overflow: visible;                 /* Dropdown darf nach unten überlappen */
 }
 
-/* Innerer horizontaler Scroller – enthält jetzt auch Save */
+/* Innerer horizontaler Scroller */
 .topbar-scroll{
   display: flex; gap: .75rem; align-items: center;
-  /* ÄNDERUNG: explizit X:auto, Y:visible, damit kein Vertikal-Scroll beim Dropdown */
+  /* X: auto, Y: visible – horizontal scrollbar, kein vertikales Scrolling */
   overflow: auto visible;
   -webkit-overflow-scrolling: touch;
   flex-wrap: nowrap;
@@ -63,7 +63,7 @@ html, body { overflow: hidden; }
   background: rgba(148,163,184,.18); 
   border: none; 
   border-radius: .5rem; 
-  /* ÄNDERUNG: Größe an .view-btn angeglichen */
+  /* Größe an .view-btn angeglichen */
   padding: .4rem .75rem; 
   color: #fff; 
   font-weight: 600; 
@@ -86,8 +86,10 @@ html, body { overflow: hidden; }
 
 /* Save dropdown */
 .save-wrap { position: relative; }
+
+/* WICHTIG: fixed, damit nicht im Scroll-Container liegt */
 .save-menu {
-  position: absolute; top: 100%; right: 0; margin-top: .35rem;
+  position: fixed;
   background: rgba(2,6,23,.98);
   border: 1px solid rgba(255,255,255,.12);
   border-radius: .5rem;
