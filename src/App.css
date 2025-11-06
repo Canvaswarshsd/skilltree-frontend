@@ -39,50 +39,36 @@ html, body { overflow: hidden; }
 }
 .project-input:focus {
   outline: none;
-  border-color: #cbd5e1;
-  box-shadow: 0 0 6px rgba(203,213,225,.45);
+  border-color: #38bdf8;
+  box-shadow: 0 0 6px rgba(56,189,248,.4);
 }
 .project-input::placeholder {
   color: rgba(255,255,255,.88);
 }
 
-/* Buttons – neutrale, elegante Grautöne */
+/* Buttons */
 .btn { 
-  background: rgba(148,163,184,.22);
-  border: 1px solid rgba(255,255,255,.18);
-  border-radius: .6rem; 
+  background: rgba(148,163,184,.18); 
+  border: none; 
+  border-radius: .5rem; 
   padding: .45rem .8rem; 
   color: #fff; 
   font-weight: 600; 
   cursor: pointer; 
-  transition: background .15s ease, border-color .15s ease, transform .05s ease;
 }
-.btn:hover { 
-  background: rgba(148,163,184,.32);
-  border-color: rgba(255,255,255,.25);
-}
-.btn:active { transform: translateY(1px); }
+.btn-remove { background: #ef4444; }
+.btn-save { background: #22c55e; }
 
-/* Remove bleibt rot, aber dezenter */
-.btn-remove { background: #b91c1c; border-color: rgba(255,255,255,.2); }
-.btn-remove:hover { background: #dc2626; }
-
-/* Save jetzt ebenfalls grau */
-.btn-save { background: rgba(148,163,184,.28); border-color: rgba(255,255,255,.22); }
-
-/* View-Buttons: Grau, active etwas kräftiger */
 .view-btn { 
-  background: rgba(148,163,184,.22); 
-  border: 1px solid rgba(255,255,255,.18); 
-  border-radius: .6rem; 
+  background: rgba(15,23,42,.4); 
+  border: 1px solid transparent; 
+  border-radius: .5rem; 
   padding: .4rem .75rem; 
   color: #fff; 
   cursor: pointer; 
   font-size: .85rem; 
-  transition: background .15s ease, border-color .15s ease, transform .05s ease;
 }
-.view-btn:hover { background: rgba(148,163,184,.3); border-color: rgba(255,255,255,.24); }
-.view-btn.active { background: rgba(148,163,184,.42); border-color: rgba(255,255,255,.28); color: #fff; }
+.view-btn.active { background: #38bdf8; color: #020617; }
 
 /* Save dropdown */
 .save-wrap { position: relative; }
@@ -116,7 +102,7 @@ html, body { overflow: hidden; }
   padding: 1.2rem 1.4rem 2rem; 
   overflow-y: auto; 
   overflow-x: hidden;
-  touch-action: pan-y;
+  touch-action: pan-y;                   /* mobiles Scrollen */
   -webkit-overflow-scrolling: touch; 
   overscroll-behavior: contain;
 }
@@ -129,41 +115,28 @@ html, body { overflow: hidden; }
   border-radius: .6rem;
   padding: .6rem .7rem;
   padding-right: 2.2rem;
-
-  /* Inhalte leicht weiter nach rechts */
-  padding-left: 1.1rem;
-
-  display: flex; align-items: center; gap: .7rem;
+  display: flex; align-items: center; gap: .6rem;
   margin-bottom: .45rem;
-
-  /* Grund-Einrückung für alle Tasks (nicht zu groß, nur dezent) */
-  margin-left: 18px;
-
   cursor: default;
-  touch-action: pan-y;
+  touch-action: pan-y;                  /* Scroll erlaubt, aber horizontal blockiert */
 }
 .task-row::after {
   content: "";
   position: absolute;
   right: .5rem; top: 50%; transform: translateY(-50%);
   width: 18px; height: 18px; border-radius: 4px;
-  border: 1px dashed rgba(148,163,184,.35);
-  opacity: .5;
+  border: 1px dashed rgba(148,163,184,.4);
+  opacity: .6;
 }
 .task-row.dragging-row { opacity: .9; }
 
-/* Punkte: zurück zu edlem Grau, etwas markanter */
 .task-bullet { 
-  width: 10px; 
-  height: 10px; 
+  width: 7px; height: 7px; 
+  background: rgba(148,163,184,.75); 
   border-radius: 9999px; 
   flex: 0 0 auto;
   touch-action: none;
   cursor: grab;
-
-  background: #4b5563;                 /* dunkleres Grau */
-  border: 2px solid rgba(255,255,255,.65);
-  box-shadow: 0 0 0 3px rgba(75,85,99,.22); /* sanfter, grauer Glow */
 }
 
 .task-input { 
@@ -175,8 +148,8 @@ html, body { overflow: hidden; }
 
 /* Drop hover feedback */
 .task-row.drop-hover {
-  border-color: #94a3b8;
-  box-shadow: 0 0 0 2px rgba(148,163,184,.25) inset;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56,189,248,.25) inset;
 }
 
 /* Map */
@@ -214,7 +187,7 @@ html, body { overflow: hidden; }
   cursor: pointer; transition: background .2s ease, transform .05s ease;
   pointer-events: auto;
 }
-.center-btn:hover { background: rgba(148,163,184,.32); color: #fff; }
+.center-btn:hover { background: rgba(56,189,248,.9); color: #020617; }
 .center-btn:active { transform: translateY(1px); }
 
 /* Responsive */
