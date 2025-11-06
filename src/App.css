@@ -113,13 +113,28 @@ html, body { overflow: hidden; }
   background: rgba(15,23,42,.35);
   border: 1px solid rgba(148,163,184,.22);
   border-radius: .6rem;
+
+  /* bleibt gleich: Balken-Größe */
   padding: .6rem .7rem;
   padding-right: 2.2rem;
+
   display: flex; align-items: center; gap: .6rem;
   margin-bottom: .45rem;
   cursor: default;
   touch-action: pan-y;                  /* Scroll erlaubt, aber horizontal blockiert */
+
+  /* Basis-Indent NUR für den Inhalt, nicht für den Balken */
+  --base-indent: 28px;
 }
+
+/* Unsichtbarer Flex-Spacer vor Punkt & Text -> schiebt INHALT nach rechts */
+.task-row::before {
+  content: "";
+  display: block;
+  flex: 0 0 var(--base-indent);
+}
+
+/* (bestehender „Box rechts“-Marker) */
 .task-row::after {
   content: "";
   position: absolute;
@@ -128,6 +143,7 @@ html, body { overflow: hidden; }
   border: 1px dashed rgba(148,163,184,.4);
   opacity: .6;
 }
+
 .task-row.dragging-row { opacity: .9; }
 
 .task-bullet { 
