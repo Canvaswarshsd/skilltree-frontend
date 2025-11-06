@@ -79,7 +79,7 @@ export default function App() {
     setTasks(prev => prev.map(t => (t.id === id ? { ...t, title } : t)));
   };
 
-  /* ---- Remove Task (Gegenstück zu Add): löscht die zuletzt hinzugefügte Task inkl. aller Kinder ---- */
+  /* ---- Remove Task ---- */
   function collectSubtreeIds(list: Task[], rootId: string): Set<string> {
     const out = new Set<string>([rootId]);
     const queue = [rootId];
@@ -180,7 +180,6 @@ export default function App() {
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
-    // Verhindert, dass das Map-Panning startet
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -364,7 +363,7 @@ export default function App() {
     setPan({ x: 0, y: 0 });
   };
 
-  /* ---------- Save / Save As UI (Stub; Funktionalität verdrahten wir später) ---------- */
+  /* ---------- Save / Save As UI (Stub) ---------- */
   const [saveOpen, setSaveOpen] = useState(false);
   const toggleSaveMenu = () => setSaveOpen(v => !v);
   const doSave = () => { setSaveOpen(false); alert("Save (Stub) – verbinden wir später mit Local/Teams."); };
@@ -397,7 +396,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Edit-Toggle bleibt optional – hier als simples Button links nicht aktiv/aktiv */}
         <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
       </header>
 
@@ -545,7 +543,9 @@ function Row({
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           const inInput = (e.target as HTMLElement).closest(".task-input");
-          if (inInput) return;
+          if (inInput) return; // Klick ins Input = rename, kein Drag
+          // *** WICHTIG FÜR TOUCH: Capture setzen, damit pointerup sicher ankommt
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
           e.preventDefault();
           startDrag(task.id);
         }}
