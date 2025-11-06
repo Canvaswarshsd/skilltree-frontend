@@ -116,6 +116,7 @@ export default function App() {
     taskId: string;
   } | null>(null);
   const DRAG_THRESHOLD = 8; // px
+  const LONGPRESS_MS = 300;
 
   function startDrag(id: string) {
     draggingRef.current = id;
@@ -148,7 +149,6 @@ export default function App() {
   /* Global pointer-up/cancel für Edit-DnD */
   useEffect(() => {
     function onPointerUp(e: PointerEvent) {
-      // Falls Drag nie gestartet wurde: nur Geste aufräumen
       if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
         editGesture.current = null;
       }
@@ -180,7 +180,6 @@ export default function App() {
         const dx = e.clientX - editGesture.current.startX;
         const dy = e.clientY - editGesture.current.startY;
         if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-          // Drag starten
           editGesture.current.rowEl.setPointerCapture?.(editGesture.current.pointerId);
           e.preventDefault();
           startDrag(editGesture.current.taskId);
@@ -207,27 +206,17 @@ export default function App() {
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset(prev => ({ ...prev, [id]: { x, y } }));
 
-  // Node-Drag-Session
-  const vDrag = useRef<{
-    id: string;
-    startClient: { x: number; y: number };
-    startOffset: { x: number; y: number };
-  } | null>(null);
+  const vDrag = useRef<{ id: string; startClient: { x: number; y: number }; startOffset: { x: number; y: number } } | null>(null);
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    vDrag.current = {
-      id,
-      startClient: { x: e.clientX, y: e.clientY },
-      startOffset: getOffset(id),
-    };
+    vDrag.current = { id, startClient: { x: e.clientX, y: e.clientY }, startOffset: getOffset(id) };
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
-
   function onNodePointerMove(e: PointerEvent) {
     const d = vDrag.current;
     if (!d) return;
@@ -451,12 +440,10 @@ export default function App() {
                 draggingId={draggingId}
                 hoverId={hoverId}
                 setHoverId={setHoverId}
-                startDrag={(id) => {
-                  // Wird von Gesture-Start aufgerufen
-                  startDrag(id);
-                }}
+                startDrag={(id) => { startDrag(id); }}
                 renameTask={renameTask}
                 editGesture={editGesture}
+                LONGPRESS_MS={LONGPRESS_MS}
               />
             ))}
           </div>
@@ -544,7 +531,7 @@ export default function App() {
 
 /* ----- Edit row (recursive) ----- */
 function Row({
-  task, depth, tasks, draggingId, hoverId, setHoverId, startDrag, renameTask, editGesture
+  task, depth, tasks, draggingId, hoverId, setHoverId, startDrag, renameTask, editGesture, LONGPRESS_MS
 }: {
   task: Task; depth: number; tasks: Task[];
   draggingId: string | null;
@@ -555,10 +542,52 @@ function Row({
   editGesture: React.MutableRefObject<{
     pointerId: number; rowEl: HTMLElement; startX: number; startY: number; started: boolean; taskId: string;
   } | null>;
+  LONGPRESS_MS: number;
 }) {
   const children = tasks.filter(t => t.parentId === task.id);
   const isDroppable = (srcId: string | null) =>
     !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
+
+  const longPressTimer = useRef<number | null>(null);
+
+  const clearTimer = () => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePointerDownDragZone = (e: React.PointerEvent) => {
+    // nur in Handle-Zonen Drag initiieren (zentraler Text bleibt Rename/Scroll)
+    const rowEl = e.currentTarget.parentElement as HTMLElement; // .task-row
+    const id = rowEl.dataset.taskId!;
+    editGesture.current = {
+      pointerId: e.pointerId,
+      rowEl,
+      startX: e.clientX,
+      startY: e.clientY,
+      started: false,
+      taskId: id,
+    };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
+    // Long-press startet Drag auch ohne Bewegung
+    clearTimer();
+    longPressTimer.current = window.setTimeout(() => {
+      if (editGesture.current && !editGesture.current.started) {
+        startDrag(id);
+        editGesture.current.started = true;
+      }
+    }, LONGPRESS_MS);
+  };
+
+  const handlePointerUpAnywhere = (e: React.PointerEvent) => {
+    // Timer aufräumen, falls Drag nicht gestartet wurde
+    clearTimer();
+    if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
+      editGesture.current = null;
+    }
+  };
 
   return (
     <>
@@ -568,30 +597,26 @@ function Row({
         data-task-id={task.id}
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
-        onPointerDown={(e) => {
-          const target = e.target as HTMLElement;
-          const inInput = target.closest(".task-input");
-          if (inInput) return; // Textfeld = Rename, kein Drag
-
-          // Gestenstart vormerken (Scroll bleibt erlaubt, kein preventDefault)
-          editGesture.current = {
-            pointerId: e.pointerId,
-            rowEl: e.currentTarget as HTMLElement,
-            startX: e.clientX,
-            startY: e.clientY,
-            started: false,
-            taskId: task.id,
-          };
-        }}
+        onPointerUp={handlePointerUpAnywhere}
       >
-        <span className="task-bullet" />
+        {/* Linke Drag-Zone */}
+        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
+
+        {/* Bullet (kann ebenfalls als Griff dienen) */}
+        <span className="task-bullet" onPointerDown={handlePointerDownDragZone} />
+
+        {/* Titel: Tap = Rename (kein Drag) */}
         <input
           className="task-input"
           value={task.title}
           onChange={(e) => renameTask(task.id, e.target.value)}
           placeholder="Task title…"
         />
+
         {task.parentId && <span className="task-parent-label">child</span>}
+
+        {/* Rechte Drag-Zone */}
+        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
       {children.map(c => (
@@ -606,6 +631,7 @@ function Row({
           startDrag={startDrag}
           renameTask={renameTask}
           editGesture={editGesture}
+          LONGPRESS_MS={LONGPRESS_MS}
         />
       ))}
     </>
@@ -696,3 +722,4 @@ function renderChildNodesWithOffsets(
 
   return nodes;
 }
+

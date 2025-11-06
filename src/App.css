@@ -102,7 +102,7 @@ html, body { overflow: hidden; }
   padding: 1.2rem 1.4rem 2rem; 
   overflow-y: auto; 
   overflow-x: hidden;
-  touch-action: pan-y;                   /* mobiles Scrollen */
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch; 
   overscroll-behavior: contain;
 }
@@ -113,28 +113,23 @@ html, body { overflow: hidden; }
   background: rgba(15,23,42,.35);
   border: 1px solid rgba(148,163,184,.22);
   border-radius: .6rem;
-
-  /* bleibt gleich: Balken-Größe */
   padding: .6rem .7rem;
   padding-right: 2.2rem;
-
   display: flex; align-items: center; gap: .6rem;
   margin-bottom: .45rem;
   cursor: default;
-  touch-action: pan-y;                  /* Scroll erlaubt, aber horizontal blockiert */
-
-  /* Basis-Indent NUR für den Inhalt, nicht für den Balken */
+  touch-action: pan-y;
   --base-indent: 28px;
 }
 
-/* Unsichtbarer Flex-Spacer vor Punkt & Text -> schiebt INHALT nach rechts */
+/* unsichtbarer Spacer (Content weiter rechts) */
 .task-row::before {
   content: "";
   display: block;
   flex: 0 0 var(--base-indent);
 }
 
-/* (bestehender „Box rechts“-Marker) */
+/* rechter Kasten */
 .task-row::after {
   content: "";
   position: absolute;
@@ -162,11 +157,25 @@ html, body { overflow: hidden; }
 .task-input:focus { outline: none; }
 .task-parent-label { font-size: .7rem; opacity: .45; }
 
-/* Drop hover feedback */
 .task-row.drop-hover {
   border-color: #38bdf8;
   box-shadow: 0 0 0 2px rgba(56,189,248,.25) inset;
 }
+
+/* ===== NEW: Drag-Handles links & rechts ===== */
+.drag-handle {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 56px;                 /* spürbare Fläche */
+  z-index: 3;
+  touch-action: none;          /* in der Handle-Zone kein Scroll, nur Gesture */
+  cursor: grab;
+  /* optional: debug sichtbar machen
+  background: rgba(255,0,0,.1);
+  */
+}
+.drag-handle.left  { left: 6px; }       /* nicht am Rand kleben */
+.drag-handle.right { right: 28px; }     /* kollidiert nicht mit dem ::after-Kästchen */
 
 /* Map */
 .skillmap-wrapper { 
