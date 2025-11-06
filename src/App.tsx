@@ -129,6 +129,25 @@ export default function App() {
     };
   }, [hoverId]);
 
+  /* ---------- MOBILE SUPPORT: Edit-DnD Zielerkennung ohne Hover ----------
+     Während eines Drags (Edit-Ansicht) ermitteln wir das Element unter dem Finger
+     per elementFromPoint und setzen hoverId entsprechend. So funktioniert Reparenting
+     1:1 auch auf Touch (kein :hover nötig). */
+  useEffect(() => {
+    const onDocPointerMoveEdit = (e: PointerEvent) => {
+      if (view !== "edit") return;
+      if (!draggingRef.current) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      if (!el) { setHoverId(null); return; }
+      const row = el.closest?.(".task-row") as HTMLElement | null;
+      const targetId = row?.dataset?.taskId || null;
+      // Nur droppbar, wenn keine Zyklen etc. – das prüft Row optisch; hier brauchen wir nur die ID
+      setHoverId(targetId);
+    };
+    window.addEventListener("pointermove", onDocPointerMoveEdit, { passive: true });
+    return () => window.removeEventListener("pointermove", onDocPointerMoveEdit);
+  }, [view]);
+
   /* ---------- Visualize: manuelle Node-Offsets + Node-Drag ---------- */
   const [nodeOffset, setNodeOffset] = useState<Record<string, { x: number; y: number }>>({});
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
@@ -187,21 +206,85 @@ export default function App() {
     setView("map");
   };
 
-  /* Panning handlers (Visualize) */
-  const onDown = (e: React.MouseEvent) => {
-    // Panning nur starten, wenn NICHT gerade auf einem Node gedrückt wurde
+  /* ---------- MOBILE SUPPORT: Map-Pan & Pinch via Pointer-Events ---------- */
+
+  // Aktive Pointer für Pinch
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinching = useRef(false);
+  const pinchStart = useRef<{ dist: number; cx: number; cy: number; startScale: number } | null>(null);
+
+  function distance(a: {x:number;y:number}, b:{x:number;y:number}) {
+    const dx = a.x - b.x, dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+  }
+  function midpoint(a:{x:number;y:number}, b:{x:number;y:number}) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  /* Panning handlers (Visualize) — jetzt Pointer-Events */
+  const onPointerDownMap = (e: React.PointerEvent) => {
+    // Wenn ein Node gezogen wird, nicht pannen.
     if (nodeDragging.current) return;
-    panning.current = true;
-    last.current = { x: e.clientX, y: e.clientY };
+
+    // Pointer registrieren
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.current.size === 2) {
+      // Pinch starten
+      const [p1, p2] = Array.from(activePointers.current.values());
+      const dist = distance(p1, p2);
+      const m = midpoint(p1, p2);
+      pinching.current = true;
+      pinchStart.current = { dist, cx: m.x, cy: m.y, startScale: scale };
+      panning.current = false; // während Pinch kein Pan
+    } else if (activePointers.current.size === 1) {
+      // Ein-Finger-Pan
+      panning.current = true;
+      last.current = { x: e.clientX, y: e.clientY };
+    }
+
+    // Browser-Gesten (Scroll/Zoom) abschalten innerhalb der Map
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    e.preventDefault();
   };
-  const onMove = (e: React.MouseEvent) => {
-    if (!panning.current) return;
-    const dx = e.clientX - last.current.x;
-    const dy = e.clientY - last.current.y;
-    last.current = { x: e.clientX, y: e.clientY };
-    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+
+  const onPointerMoveMap = (e: React.PointerEvent) => {
+    const pt = activePointers.current.get(e.pointerId);
+    if (pt) activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pinching.current && activePointers.current.size >= 2 && view === "map") {
+      const [p1, p2] = Array.from(activePointers.current.values());
+      const distNow = distance(p1, p2);
+      const m = midpoint(p1, p2);
+      const start = pinchStart.current!;
+      if (!start) return;
+      const raw = start.startScale * (distNow / (start.dist || 1));
+      const next = Math.min(MAX_Z, Math.max(MIN_Z, raw));
+      // Pivot an aktuellem Mittelpunkt – hält Inhalt unter den Fingern stabil
+      zoomAt(m.x, m.y, next);
+      e.preventDefault();
+      return;
+    }
+
+    if (panning.current && view === "map") {
+      const dx = e.clientX - last.current.x;
+      const dy = e.clientY - last.current.y;
+      last.current = { x: e.clientX, y: e.clientY };
+      setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+      e.preventDefault();
+    }
   };
-  const onUp = () => { panning.current = false; };
+
+  const onPointerUpMap = (e: React.PointerEvent) => {
+    activePointers.current.delete(e.pointerId);
+    if (activePointers.current.size < 2) {
+      pinching.current = false;
+      pinchStart.current = null;
+    }
+    if (activePointers.current.size === 0) {
+      panning.current = false;
+    }
+  };
 
   /* Zoom unter Cursor (Mausrad/Pinch) */
   function zoomAt(clientX: number, clientY: number, nextScale: number) {
@@ -226,8 +309,6 @@ export default function App() {
   const onWheel = (e: React.WheelEvent) => {
     if (view !== "map") return;
     e.preventDefault();                 // Browser-Scroll unterbinden (innerhalb der Map)
-
-    // Unterstützt normales Mausrad UND Pinch (Chrome/Edge: ctrlKey=true, deltaY je Richtung)
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     const target = Math.min(MAX_Z, Math.max(MIN_Z, scale * factor));
     zoomAt(e.clientX, e.clientY, target);
@@ -254,11 +335,9 @@ export default function App() {
   useEffect(() => {
     const onGlobalWheel = (ev: WheelEvent) => {
       if (!ev.ctrlKey) return;
-      // Nur verhindern, wenn NICHT über der Map
       const path = (ev.composedPath && ev.composedPath()) || [];
       const insideMap = path.some((el) => (el as HTMLElement)?.classList?.contains?.("skillmap-wrapper"));
       if (!insideMap) ev.preventDefault();
-      // Wenn insideMap: nicht blocken -> local onWheel verarbeitet Pinch als Map-Zoom
     };
     const onKeyDown = (ev: KeyboardEvent) => {
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === "+" || ev.key === "-" || ev.key === "=" || ev.key === "0")) {
@@ -330,10 +409,12 @@ export default function App() {
           <div
             className="skillmap-wrapper"
             ref={wrapperRef}
-            onMouseDown={onDown}
-            onMouseMove={onMove}
-            onMouseUp={onUp}
-            onMouseLeave={onUp}
+            // WICHTIG: Pointer-Events für Mobile
+            style={{ touchAction: "none" }}
+            onPointerDown={onPointerDownMap}
+            onPointerMove={onPointerMoveMap}
+            onPointerUp={onPointerUpMap}
+            onPointerCancel={onPointerUpMap}
             onWheel={onWheel}
           >
             {/* Skaliert und gepannt: nur die Map selbst */}
@@ -440,12 +521,14 @@ function Row({
       <div
         className={`task-row ${isDroppable(draggingId) && hoverId === task.id ? "drop-hover" : ""} ${draggingId === task.id ? "dragging-row" : ""}`}
         style={{ paddingLeft: depth * 28 + "px" }}
+        data-task-id={task.id} /* MOBILE SUPPORT: für elementFromPoint-Zielerkennung */
         onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
         onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
         onPointerDown={(e) => {
+          // Desktop: nur LMB; Touch: button ist ebenfalls 0 – passt.
           if (e.button !== 0) return;
           const inInput = (e.target as HTMLElement).closest(".task-input");
-          if (inInput) return;
+          if (inInput) return; // Klick in Input = Rename, kein Drag
           e.preventDefault();
           startDrag(task.id);
         }}
