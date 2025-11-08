@@ -12,7 +12,7 @@ function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
-/* ----- SAVE/LOAD: Types & helpers (NEU) ----- */
+/* ----- SAVE/LOAD: Types & helpers ----- */
 type SavedState = {
   v: 1;
   projectTitle: string;
@@ -46,7 +46,6 @@ function buildFileName(projectTitle: string) {
   const base = slugifyTitle(projectTitle) || "taskmap";
   return `${base}.taskmap.json`;
 }
-
 function buildImageFileName(projectTitle: string, ext: "jpg" | "pdf") {
   const base = slugifyTitle(projectTitle) || "taskmap";
   return `${base}.${ext}`;
@@ -426,7 +425,7 @@ export default function App() {
 
   const resetView = () => { setScale(1); setPan({ x: 0, y: 0 }); };
 
-  /* Save (Stub) — Option A: fixed dropdown mit exakter Position */
+  /* Save dropdown */
   const [saveOpen, setSaveOpen] = useState(false);
   const saveBtnRef = useRef<HTMLButtonElement | null>(null);
   const [savePos, setSavePos] = useState<{ top: number; left: number } | null>(null);
@@ -435,7 +434,6 @@ export default function App() {
     const btn = saveBtnRef.current;
     if (!btn) { setSaveOpen(v => !v); return; }
     const r = btn.getBoundingClientRect();
-    // Rechtsbündig unter dem Button, kleiner Abstand (6px)
     setSavePos({ top: r.bottom + 6, left: r.right });
     setSaveOpen(true);
   };
@@ -447,7 +445,7 @@ export default function App() {
     });
   };
 
-  /* NEU: Handle für echtes Überschreiben nach "Save As..." (Chromium) */
+  /* File System Access handle */
   const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
 
   const doSave   = async () => {
@@ -465,7 +463,6 @@ export default function App() {
       console.warn("File handle save failed, falling back to download", err);
     }
 
-    // Fallback: schneller Download (mobil & Browser ohne File System Access API)
     downloadJSON(buildFileName(projectTitle), state);
   };
 
@@ -488,17 +485,16 @@ export default function App() {
         await writable.close();
         return;
       } catch (e: any) {
-        if (e?.name === "AbortError") return; // Nutzer hat abgebrochen
+        if (e?.name === "AbortError") return;
         console.warn("showSaveFilePicker failed, falling back to download", e);
       }
     }
 
-    // Universeller Fallback (mobil)
     downloadJSON(buildFileName(projectTitle), state);
     setFileHandle(null);
   };
 
-  /* ---------- OPEN: Datei laden (NEU) ---------- */
+  /* ---------- OPEN ---------- */
   function loadFromJSON(data: any) {
     try {
       const obj = data as Partial<SavedState>;
@@ -530,16 +526,14 @@ export default function App() {
         const text = await file.text();
         const json = JSON.parse(text);
         loadFromJSON(json);
-        // Merke Handle → Save kann dieselbe Datei überschreiben
         setFileHandle(handle as FileSystemFileHandle);
         return;
       }
     } catch (e: any) {
-      if (e?.name === "AbortError") return; // Benutzer abgebrochen
+      if (e?.name === "AbortError") return;
       console.warn("showOpenFilePicker failed, falling back to input[type=file]", e);
     }
 
-    // Fallback für Safari/Firefox/mobil
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".taskmap.json,application/json";
@@ -560,7 +554,7 @@ export default function App() {
     input.click();
   };
 
-  /* ---------- NEU: Download-Dropdown (PDF/JPG) ---------- */
+  /* ---------- DOWNLOAD: Dropdown + Export (SVG-basiert, unabh. vom Zoom) ---------- */
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadBtnRef = useRef<HTMLButtonElement | null>(null);
   const [downloadPos, setDownloadPos] = useState<{ top: number; left: number } | null>(null);
@@ -569,7 +563,7 @@ export default function App() {
     const btn = downloadBtnRef.current;
     if (!btn) { setDownloadOpen(v => !v); return; }
     const r = btn.getBoundingClientRect();
-    setDownloadPos({ top: r.bottom + 6, left: r.right }); // rechtsbündig, wie Save
+    setDownloadPos({ top: r.bottom + 6, left: r.right });
     setDownloadOpen(true);
   };
   const toggleDownloadMenu = () => {
@@ -580,60 +574,187 @@ export default function App() {
     });
   };
 
-  // --- Helfer: externe Skripte lazy laden (html2canvas / jsPDF) ---
-  async function loadScriptOnce(src: string, globalCheck: () => boolean): Promise<void> {
-    if (globalCheck()) return;
-    await new Promise<void>((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = src;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Failed to load " + src));
-      document.head.appendChild(s);
-    });
-    // Warten bis Global verfügbar
-    const started = Date.now();
-    while (!globalCheck()) {
-      if (Date.now() - started > 8000) throw new Error("Library not available: " + src);
-      await new Promise(r => setTimeout(r, 30));
+  /* ----- Layout für Export unabhängig vom UI-Zustand ----- */
+
+  const getChildren = (id: string) => tasks.filter(t => t.parentId === id);
+
+  type NodeGeom = { id: string; title: string; x: number; y: number; r: number; color: string; fontSize: number; };
+  type EdgeGeom = { x1: number; y1: number; x2: number; y2: number; color: string; };
+
+  function computeExportLayout(): { nodes: NodeGeom[]; edges: EdgeGeom[]; bbox: {minX:number;minY:number;maxX:number;maxY:number} } {
+    const nodes: NodeGeom[] = [];
+    const edges: EdgeGeom[] = [];
+
+    // Center node
+    nodes.push({ id: "CENTER", title: projectTitle || "Project", x: 0, y: 0, r: R_CENTER, color: "#020617", fontSize: 20 });
+
+    const rootsList = tasks.filter(t => t.parentId === null);
+    const total = Math.max(rootsList.length, 1);
+
+    const getOff = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
+
+    // Helper: recurse children
+    function placeChildren(parentId: string, px: number, py: number, pr: number, color: string, gpx: number, gpy: number) {
+      const kids = getChildren(parentId);
+      if (kids.length === 0) return;
+
+      const base = Math.atan2(py - gpy, px - gpx);
+      const SPREAD = Math.min(Math.PI, Math.max(Math.PI * 0.6, (kids.length - 1) * (Math.PI / 6)));
+      const step = kids.length === 1 ? 0 : SPREAD / (kids.length - 1);
+      const start = base - SPREAD / 2;
+
+      kids.forEach((kid, idx) => {
+        const ang = start + idx * step;
+        const ko = getOff(kid.id);
+        const cx = px + Math.cos(ang) * RING + ko.x;
+        const cy = py + Math.sin(ang) * RING + ko.y;
+
+        // Edge
+        const seg = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
+        edges.push({ x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, color });
+
+        // Node
+        nodes.push({ id: kid.id, title: kid.title, x: cx, y: cy, r: R_CHILD, color, fontSize: 16 });
+
+        placeChildren(kid.id, cx, cy, R_CHILD, color, px, py);
+      });
     }
-  }
 
-  async function ensureHtml2Canvas() {
-    await loadScriptOnce(
-      "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js",
-      () => typeof (window as any).html2canvas === "function"
-    );
-    return (window as any).html2canvas as (el: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>;
-  }
+    rootsList.forEach((root, i) => {
+      const ang = (i / total) * Math.PI * 2;
+      const ro = getOff(root.id);
+      const rx = Math.cos(ang) * ROOT_RADIUS + ro.x;
+      const ry = Math.sin(ang) * ROOT_RADIUS + ro.y;
+      const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
 
-  async function ensureJsPDF() {
-    await loadScriptOnce(
-      "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js",
-      () => !!(window as any).jspdf
-    );
-    return (window as any).jspdf.jsPDF as any;
-  }
+      // Edge center -> root
+      const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
+      edges.push({ x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, color });
 
-  async function captureCanvasOfWrapper(): Promise<HTMLCanvasElement> {
-    const el = wrapperRef.current;
-    if (!el) throw new Error("Nothing to export. Open Visualize first.");
-    const html2canvas = await ensureHtml2Canvas();
-    // Hohe Auflösung + weißer Hintergrund
-    const canvas = await html2canvas(el, {
-      backgroundColor: "#ffffff",
-      scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
-      useCORS: true,
-      logging: false,
-      removeContainer: true
+      // Root node
+      nodes.push({ id: root.id, title: root.title, x: rx, y: ry, r: R_ROOT, color, fontSize: 18 });
+
+      // Children of root
+      placeChildren(root.id, rx, ry, R_ROOT, color, 0, 0);
     });
-    return canvas;
+
+    // Bounding box (inkl. Kreise)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x - n.r);
+      minY = Math.min(minY, n.y - n.r);
+      maxX = Math.max(maxX, n.x + n.r);
+      maxY = Math.max(maxY, n.y + n.r);
+    }
+    // Lines liegen innerhalb der Knoten-Extents, aber defensiv:
+    for (const e of edges) {
+      minX = Math.min(minX, e.x1, e.x2);
+      minY = Math.min(minY, e.y1, e.y2);
+      maxX = Math.max(maxX, e.x1, e.x2);
+      maxY = Math.max(maxY, e.y1, e.y2);
+    }
+
+    // Padding damit „schön gerahmt“
+    const PAD = 140;
+    minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
+
+    return { nodes, edges, bbox: {minX, minY, maxX, maxY} };
+  }
+
+  function esc(s: string) {
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function splitTitleLines(t: string, maxLen: number): string[] {
+    const s = (t || "").trim();
+    if (!s) return ["Project"];
+    if (s.length <= maxLen) return [s];
+    // simple wrap by spaces
+    const words = s.split(/\s+/);
+    const lines: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      if ((cur + " " + w).trim().length > maxLen) {
+        if (cur) lines.push(cur);
+        cur = w;
+      } else {
+        cur = (cur ? cur + " " : "") + w;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines.slice(0, 3); // max 3 Zeilen
+  }
+
+  function buildSVGForExport(): { svg: string; width: number; height: number } {
+    const { nodes, edges, bbox } = computeExportLayout();
+    const width = Math.ceil(bbox.maxX - bbox.minX);
+    const height = Math.ceil(bbox.maxY - bbox.minY);
+
+    // SVG Background + edges + nodes
+    const parts: string[] = [];
+    parts.push(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bbox.minX} ${bbox.minY} ${width} ${height}">`,
+      `<defs><style>
+        .lbl{font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight:700; fill:#fff; text-anchor:middle; dominant-baseline:middle;}
+      </style></defs>`,
+      `<rect x="${bbox.minX}" y="${bbox.minY}" width="${width}" height="${height}" fill="#ffffff"/>`
+    );
+
+    // Edges (runde Kappen)
+    for (const e of edges) {
+      parts.push(`<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${e.color}" stroke-width="6" stroke-linecap="round"/>`);
+    }
+
+    // Nodes (Kreise + Text)
+    for (const n of nodes) {
+      parts.push(`<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.id === "CENTER" ? "#020617" : n.color}" />`);
+
+      const maxLen = n.id === "CENTER" ? 18 : (n.r === R_ROOT ? 14 : 12);
+      const fs = n.fontSize;
+      const lines = splitTitleLines(n.title, maxLen);
+      const total = lines.length;
+      lines.forEach((ln, idx) => {
+        const dy = (idx - (total-1)/2) * (fs * 1.1);
+        parts.push(`<text class="lbl" x="${n.x}" y="${n.y + dy}" font-size="${fs}">${esc(ln)}</text>`);
+      });
+    }
+
+    parts.push(`</svg>`);
+    return { svg: parts.join(""), width, height };
+  }
+
+  async function svgToCanvas(svg: string, width: number, height: number, scale = 2): Promise<HTMLCanvasElement> {
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.decoding = "sync";
+      const loaded = new Promise<void>((res, rej) => {
+        img.onload = () => res();
+        img.onerror = () => rej(new Error("SVG image load failed"));
+      });
+      img.src = url;
+      await loaded;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   async function doDownloadJPG() {
     try {
       setDownloadOpen(false);
-      const canvas = await captureCanvasOfWrapper();
+      const { svg, width, height } = buildSVGForExport();
+      const canvas = await svgToCanvas(svg, width, height, 2); // hohe Auflösung
       const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
       const a = document.createElement("a");
       a.href = dataUrl;
@@ -647,21 +768,35 @@ export default function App() {
     }
   }
 
+  // jsPDF lazy laden (nur wenn PDF klick)
+  async function loadJsPDF() {
+    if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF;
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load jsPDF"));
+      document.head.appendChild(s);
+    });
+    return (window as any).jspdf.jsPDF;
+  }
+
   async function doDownloadPDF() {
     try {
       setDownloadOpen(false);
-      const canvas = await captureCanvasOfWrapper();
+      const { svg, width, height } = buildSVGForExport();
+      const canvas = await svgToCanvas(svg, width, height, 2);
       const imgData = canvas.toDataURL("image/jpeg", 0.95);
 
-      const jsPDF = await ensureJsPDF();
-      // PDF in "px"-Einheiten, Format exakt wie Canvas
+      const jsPDF = await loadJsPDF();
       const pdf = new jsPDF({
-        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+        orientation: width >= height ? "landscape" : "portrait",
         unit: "px",
-        format: [canvas.width, canvas.height],
+        format: [width, height],
         compress: true
       });
-      pdf.addImage(imgData, "JPEG", 0, 0, canvas.width, canvas.height);
+      pdf.addImage(imgData, "JPEG", 0, 0, width, height);
       pdf.save(buildImageFileName(projectTitle, "pdf"));
     } catch (err: any) {
       console.error(err);
@@ -669,14 +804,13 @@ export default function App() {
     }
   }
 
-  /* ---------- NEU: Native Wheel Listener für Teams (Desktop) ---------- */
+  /* ---------- Native Wheel Listener (Teams) ---------- */
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
 
     const handler = (ev: WheelEvent) => {
       if (view !== "map") return;
-      // verhindert Scrollen der umgebenden Teams-Container
       ev.preventDefault();
       ev.stopPropagation();
 
@@ -685,12 +819,11 @@ export default function App() {
       zoomAt(ev.clientX, ev.clientY, target);
     };
 
-    // capture:true unterbindet, dass Reacts onWheel zusätzlich feuert (kein Doppel-Zoom)
     el.addEventListener("wheel", handler, { passive: false, capture: true });
     return () => {
       el.removeEventListener("wheel", handler, { capture: true } as any);
     };
-  }, [scale, view]); // nutzt aktuellen scale/view-Stand
+  }, [scale, view]);
 
   return (
     <div className="app">
@@ -729,7 +862,7 @@ export default function App() {
 
           <button className="view-btn" onClick={doOpen}>Open</button>
 
-          {/* Download-Button neben Open mit identischem Dropdown-Stil */}
+          {/* Download neben Open */}
           <div className="save-wrap">
             <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>Download</button>
             {downloadOpen && downloadPos && (
