@@ -877,7 +877,7 @@ function renderChildNodesWithOffsets(
   kids.forEach((kid, idx) => {
     const ang = start + idx * step;
 
-    the const cxBase = px + Math.cos(ang) * RING;
+    const cxBase = px + Math.cos(ang) * RING;
     const cyBase = py + Math.sin(ang) * RING;
     const ko = getOffset(kid.id);
     const cx = cxBase + ko.x;
