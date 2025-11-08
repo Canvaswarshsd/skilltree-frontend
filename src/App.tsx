@@ -47,6 +47,11 @@ function buildFileName(projectTitle: string) {
   return `${base}.taskmap.json`;
 }
 
+function buildImageFileName(projectTitle: string, ext: "jpg" | "pdf") {
+  const base = slugifyTitle(projectTitle) || "taskmap";
+  return `${base}.${ext}`;
+}
+
 function downloadJSON(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -575,14 +580,94 @@ export default function App() {
     });
   };
 
-  const doDownloadPDF = () => {
-    setDownloadOpen(false);
-    alert("Download as PDF – coming soon.");
-  };
-  const doDownloadJPG = () => {
-    setDownloadOpen(false);
-    alert("Download as JPG – coming soon.");
-  };
+  // --- Helfer: externe Skripte lazy laden (html2canvas / jsPDF) ---
+  async function loadScriptOnce(src: string, globalCheck: () => boolean): Promise<void> {
+    if (globalCheck()) return;
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load " + src));
+      document.head.appendChild(s);
+    });
+    // Warten bis Global verfügbar
+    const started = Date.now();
+    while (!globalCheck()) {
+      if (Date.now() - started > 8000) throw new Error("Library not available: " + src);
+      await new Promise(r => setTimeout(r, 30));
+    }
+  }
+
+  async function ensureHtml2Canvas() {
+    await loadScriptOnce(
+      "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js",
+      () => typeof (window as any).html2canvas === "function"
+    );
+    return (window as any).html2canvas as (el: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>;
+  }
+
+  async function ensureJsPDF() {
+    await loadScriptOnce(
+      "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js",
+      () => !!(window as any).jspdf
+    );
+    return (window as any).jspdf.jsPDF as any;
+  }
+
+  async function captureCanvasOfWrapper(): Promise<HTMLCanvasElement> {
+    const el = wrapperRef.current;
+    if (!el) throw new Error("Nothing to export. Open Visualize first.");
+    const html2canvas = await ensureHtml2Canvas();
+    // Hohe Auflösung + weißer Hintergrund
+    const canvas = await html2canvas(el, {
+      backgroundColor: "#ffffff",
+      scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
+      useCORS: true,
+      logging: false,
+      removeContainer: true
+    });
+    return canvas;
+  }
+
+  async function doDownloadJPG() {
+    try {
+      setDownloadOpen(false);
+      const canvas = await captureCanvasOfWrapper();
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = buildImageFileName(projectTitle, "jpg");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err: any) {
+      console.error(err);
+      alert("Export JPG failed: " + (err?.message || err));
+    }
+  }
+
+  async function doDownloadPDF() {
+    try {
+      setDownloadOpen(false);
+      const canvas = await captureCanvasOfWrapper();
+      const imgData = canvas.toDataURL("image/jpeg", 0.95);
+
+      const jsPDF = await ensureJsPDF();
+      // PDF in "px"-Einheiten, Format exakt wie Canvas
+      const pdf = new jsPDF({
+        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+        unit: "px",
+        format: [canvas.width, canvas.height],
+        compress: true
+      });
+      pdf.addImage(imgData, "JPEG", 0, 0, canvas.width, canvas.height);
+      pdf.save(buildImageFileName(projectTitle, "pdf"));
+    } catch (err: any) {
+      console.error(err);
+      alert("Export PDF failed: " + (err?.message || err));
+    }
+  }
 
   /* ---------- NEU: Native Wheel Listener für Teams (Desktop) ---------- */
   useEffect(() => {
@@ -644,7 +729,7 @@ export default function App() {
 
           <button className="view-btn" onClick={doOpen}>Open</button>
 
-          {/* NEU: Download-Button neben Open mit identischem Dropdown-Stil */}
+          {/* Download-Button neben Open mit identischem Dropdown-Stil */}
           <div className="save-wrap">
             <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>Download</button>
             {downloadOpen && downloadPos && (
