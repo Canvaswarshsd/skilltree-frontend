@@ -421,7 +421,7 @@ export default function App() {
 
   const resetView = () => { setScale(1); setPan({ x: 0, y: 0 }); };
 
-  /* Save (Stub) — Option A: fixed dropdown mit exakter Position */
+  /* Save dropdown */
   const [saveOpen, setSaveOpen] = useState(false);
   const saveBtnRef = useRef<HTMLButtonElement | null>(null);
   const [savePos, setSavePos] = useState<{ top: number; left: number } | null>(null);
@@ -430,7 +430,6 @@ export default function App() {
     const btn = saveBtnRef.current;
     if (!btn) { setSaveOpen(v => !v); return; }
     const r = btn.getBoundingClientRect();
-    // Rechtsbündig unter dem Button, kleiner Abstand (6px)
     setSavePos({ top: r.bottom + 6, left: r.right });
     setSaveOpen(true);
   };
@@ -472,7 +471,9 @@ export default function App() {
     if (supportsPicker) {
       try {
         const handle = await (window as any).showSaveFilePicker({
+          id: "taskmap-saveas",
           suggestedName: buildFileName(projectTitle),
+          startIn: "downloads",
           types: [{ description: "TaskMap Project", accept: { "application/json": [".taskmap.json"] } }],
         });
         setFileHandle(handle);
@@ -491,6 +492,68 @@ export default function App() {
     setFileHandle(null);
   };
 
+  /* ---------- OPEN: Datei laden (NEU) ---------- */
+  function loadFromJSON(data: any) {
+    try {
+      const obj = data as Partial<SavedState>;
+      if (!obj || typeof obj !== "object") throw new Error("Invalid file");
+      if (!Array.isArray(obj.tasks)) throw new Error("Missing tasks");
+      setProjectTitle(String(obj.projectTitle ?? "Project"));
+      setTasks(obj.tasks as Task[]);
+      setPan(obj.pan ?? { x: 0, y: 0 });
+      setScale(typeof obj.scale === "number" ? obj.scale : 1);
+      setNodeOffset(obj.nodeOffset ?? {});
+      setView("map");
+    } catch (err) {
+      alert("Could not open file. Is this a valid .taskmap.json?");
+      console.error(err);
+    }
+  }
+
+  const doOpen = async () => {
+    try {
+      if ("showOpenFilePicker" in window) {
+        const [handle] = await (window as any).showOpenFilePicker({
+          id: "taskmap-open",
+          startIn: "downloads",
+          multiple: false,
+          types: [{ description: "TaskMap Project", accept: { "application/json": [".taskmap.json", ".json"] } }],
+          excludeAcceptAllOption: true,
+        });
+        const file = await handle.getFile();
+        const text = await file.text();
+        const json = JSON.parse(text);
+        loadFromJSON(json);
+        // Merke Handle → Save kann dieselbe Datei überschreiben
+        setFileHandle(handle as FileSystemFileHandle);
+        return;
+      }
+    } catch (e: any) {
+      if (e?.name === "AbortError") return; // Benutzer abgebrochen
+      console.warn("showOpenFilePicker failed, falling back to input[type=file]", e);
+    }
+
+    // Fallback für Safari/Firefox
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".taskmap.json,application/json";
+    input.onchange = (ev: any) => {
+      const f = ev.target.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          loadFromJSON(JSON.parse(String(reader.result)));
+        } catch (err) {
+          alert("Could not open file. Is this a valid .taskmap.json?");
+          console.error(err);
+        }
+      };
+      reader.readAsText(f);
+    };
+    input.click();
+  };
+
   /* ---------- NEU: Native Wheel Listener für Teams (Desktop) ---------- */
   useEffect(() => {
     const el = wrapperRef.current;
@@ -507,12 +570,11 @@ export default function App() {
       zoomAt(ev.clientX, ev.clientY, target);
     };
 
-    // capture:true unterbindet, dass Reacts onWheel zusätzlich feuert (kein Doppel-Zoom)
     el.addEventListener("wheel", handler, { passive: false, capture: true });
     return () => {
       el.removeEventListener("wheel", handler, { capture: true } as any);
     };
-  }, [scale, view]); // nutzt aktuellen scale/view-Stand
+  }, [scale, view]);
 
   return (
     <div className="app">
@@ -548,6 +610,9 @@ export default function App() {
           </div>
 
           <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
+
+          {/* NEU: Open-Button (gleiche Größe/Schrift wie Edit/Visualize) */}
+          <button className="view-btn" onClick={doOpen}>Open</button>
         </div>
       </header>
 
@@ -812,7 +877,7 @@ function renderChildNodesWithOffsets(
   kids.forEach((kid, idx) => {
     const ang = start + idx * step;
 
-    const cxBase = px + Math.cos(ang) * RING;
+    the const cxBase = px + Math.cos(ang) * RING;
     const cyBase = py + Math.sin(ang) * RING;
     const ko = getOffset(kid.id);
     const cx = cxBase + ko.x;
