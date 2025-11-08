@@ -12,6 +12,53 @@ function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
+/* ----- SAVE/LOAD: Types & helpers (NEU) ----- */
+type SavedState = {
+  v: 1;
+  projectTitle: string;
+  tasks: Task[];
+  nodeOffset: Record<string, { x: number; y: number }>;
+  pan: { x: number; y: number };
+  scale: number;
+  ts: number;
+};
+
+function serializeState(
+  projectTitle: string,
+  tasks: Task[],
+  nodeOffset: Record<string, { x: number; y: number }>,
+  pan: { x: number; y: number },
+  scale: number
+): SavedState {
+  return { v: 1, projectTitle, tasks, nodeOffset, pan, scale, ts: Date.now() };
+}
+
+function slugifyTitle(t: string) {
+  return t
+    .trim()
+    .replace(/[^\w\-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "")
+    .toLowerCase();
+}
+
+function buildFileName(projectTitle: string) {
+  const base = slugifyTitle(projectTitle) || "taskmap";
+  return `${base}.taskmap.json`;
+}
+
+function downloadJSON(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /* Colors for root branches (inherited by descendants) */
 const BRANCH_COLORS = ["#f97316", "#6366f1", "#22c55e", "#eab308", "#0ea5e9", "#f43f5e"];
 
@@ -391,11 +438,81 @@ export default function App() {
     setSaveOpen(prev => {
       if (prev) return false;
       openSaveMenu();
-      return true; // openSaveMenu setzt bereits true, aber wir geben true zurück, um state konsistent zu halten
+      return true;
     });
   };
-  const doSave   = () => { setSaveOpen(false); alert("Save (Stub) – verbinden wir später mit Local/Teams."); };
-  const doSaveAs = () => { setSaveOpen(false); alert("Save As… (Stub) – Dialog folgt später."); };
+
+  /* NEU: Handle für echtes Überschreiben nach "Save As..." (Chromium) */
+  const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
+
+  const doSave   = async () => {
+    setSaveOpen(false);
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale);
+
+    try {
+      if (fileHandle && "createWritable" in fileHandle) {
+        const writable = await (fileHandle as any).createWritable();
+        await writable.write(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
+        await writable.close();
+        return;
+      }
+    } catch (err) {
+      console.warn("File handle save failed, falling back to download", err);
+    }
+
+    // Fallback: schneller Download
+    downloadJSON(buildFileName(projectTitle), state);
+  };
+
+  const doSaveAs = async () => {
+    setSaveOpen(false);
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale);
+    const supportsPicker = "showSaveFilePicker" in window;
+
+    if (supportsPicker) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: buildFileName(projectTitle),
+          types: [{ description: "TaskMap Project", accept: { "application/json": [".taskmap.json"] } }],
+        });
+        setFileHandle(handle);
+        const writable = await handle.createWritable();
+        await writable.write(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
+        await writable.close();
+        return;
+      } catch (e: any) {
+        if (e?.name === "AbortError") return; // Nutzer hat abgebrochen
+        console.warn("showSaveFilePicker failed, falling back to download", e);
+      }
+    }
+
+    // Universeller Fallback
+    downloadJSON(buildFileName(projectTitle), state);
+    setFileHandle(null);
+  };
+
+  /* ---------- NEU: Native Wheel Listener für Teams (Desktop) ---------- */
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+
+    const handler = (ev: WheelEvent) => {
+      if (view !== "map") return;
+      // verhindert Scrollen der umgebenden Teams-Container
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const target = Math.min(MAX_Z, Math.max(MIN_Z, scale * factor));
+      zoomAt(ev.clientX, ev.clientY, target);
+    };
+
+    // capture:true unterbindet, dass Reacts onWheel zusätzlich feuert (kein Doppel-Zoom)
+    el.addEventListener("wheel", handler, { passive: false, capture: true });
+    return () => {
+      el.removeEventListener("wheel", handler, { capture: true } as any);
+    };
+  }, [scale, view]); // nutzt aktuellen scale/view-Stand
 
   return (
     <div className="app">
