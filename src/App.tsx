@@ -555,6 +555,35 @@ export default function App() {
     input.click();
   };
 
+  /* ---------- NEU: Download-Dropdown (PDF/JPG) ---------- */
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const downloadBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [downloadPos, setDownloadPos] = useState<{ top: number; left: number } | null>(null);
+
+  const openDownloadMenu = () => {
+    const btn = downloadBtnRef.current;
+    if (!btn) { setDownloadOpen(v => !v); return; }
+    const r = btn.getBoundingClientRect();
+    setDownloadPos({ top: r.bottom + 6, left: r.right }); // rechtsbündig, wie Save
+    setDownloadOpen(true);
+  };
+  const toggleDownloadMenu = () => {
+    setDownloadOpen(prev => {
+      if (prev) return false;
+      openDownloadMenu();
+      return true;
+    });
+  };
+
+  const doDownloadPDF = () => {
+    setDownloadOpen(false);
+    alert("Download as PDF – coming soon.");
+  };
+  const doDownloadJPG = () => {
+    setDownloadOpen(false);
+    alert("Download as JPG – coming soon.");
+  };
+
   /* ---------- NEU: Native Wheel Listener für Teams (Desktop) ---------- */
   useEffect(() => {
     const el = wrapperRef.current;
@@ -613,8 +642,23 @@ export default function App() {
 
           <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
 
-          {/* NEU: Open-Button (gleiche Größe/Schrift wie Edit/Visualize) */}
           <button className="view-btn" onClick={doOpen}>Open</button>
+
+          {/* NEU: Download-Button neben Open mit identischem Dropdown-Stil */}
+          <div className="save-wrap">
+            <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>Download</button>
+            {downloadOpen && downloadPos && (
+              <div
+                className="save-menu"
+                role="menu"
+                style={{ top: downloadPos.top, left: downloadPos.left, transform: "translateX(-100%)" }}
+                onMouseLeave={() => setDownloadOpen(false)}
+              >
+                <button className="save-item" onClick={doDownloadPDF}>PDF</button>
+                <button className="save-item" onClick={doDownloadJPG}>JPG</button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
