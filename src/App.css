@@ -24,19 +24,18 @@ html, body { overflow: hidden; }
   padding: .75rem 1.25rem; 
   border-bottom: 1px solid rgba(255,255,255,.08); 
   background: rgba(2,6,23,.9);
-  overflow: visible;                 /* Dropdown darf nach unten überlappen */
+  overflow: visible;
 }
 
 /* Innerer horizontaler Scroller */
 .topbar-scroll{
   display: flex; gap: .75rem; align-items: center;
-  /* X: auto, Y: visible – horizontal scrollbar, kein vertikales Scrolling */
   overflow: auto visible;
   -webkit-overflow-scrolling: touch;
   flex-wrap: nowrap;
   max-width: 100%;
 }
-.topbar-scroll > * { flex: 0 0 auto; }  /* Items nicht schrumpfen */
+.topbar-scroll > * { flex: 0 0 auto; }
 
 /* Sichtbarer Project Title */
 .project-input { 
@@ -60,10 +59,9 @@ html, body { overflow: hidden; }
 
 /* Buttons */
 .btn { 
-  background: rgba(148,163,184,.18); 
+  background: rgba(15,23,42,.4);   /* geändert von rgba(148,163,184,.18) */
   border: none; 
   border-radius: .5rem; 
-  /* Größe an .view-btn angeglichen */
   padding: .4rem .75rem; 
   color: #fff; 
   font-weight: 600; 
@@ -87,7 +85,6 @@ html, body { overflow: hidden; }
 /* Save dropdown */
 .save-wrap { position: relative; }
 
-/* WICHTIG: fixed, damit nicht im Scroll-Container liegt */
 .save-menu {
   position: fixed;
   background: rgba(2,6,23,.98);
