@@ -421,7 +421,7 @@ export default function App() {
 
   const resetView = () => { setScale(1); setPan({ x: 0, y: 0 }); };
 
-  /* Save dropdown */
+  /* Save (Stub) — Option A: fixed dropdown mit exakter Position */
   const [saveOpen, setSaveOpen] = useState(false);
   const saveBtnRef = useRef<HTMLButtonElement | null>(null);
   const [savePos, setSavePos] = useState<{ top: number; left: number } | null>(null);
@@ -430,6 +430,7 @@ export default function App() {
     const btn = saveBtnRef.current;
     if (!btn) { setSaveOpen(v => !v); return; }
     const r = btn.getBoundingClientRect();
+    // Rechtsbündig unter dem Button, kleiner Abstand (6px)
     setSavePos({ top: r.bottom + 6, left: r.right });
     setSaveOpen(true);
   };
@@ -459,7 +460,7 @@ export default function App() {
       console.warn("File handle save failed, falling back to download", err);
     }
 
-    // Fallback: schneller Download
+    // Fallback: schneller Download (mobil & Browser ohne File System Access API)
     downloadJSON(buildFileName(projectTitle), state);
   };
 
@@ -487,7 +488,7 @@ export default function App() {
       }
     }
 
-    // Universeller Fallback
+    // Universeller Fallback (mobil)
     downloadJSON(buildFileName(projectTitle), state);
     setFileHandle(null);
   };
@@ -533,7 +534,7 @@ export default function App() {
       console.warn("showOpenFilePicker failed, falling back to input[type=file]", e);
     }
 
-    // Fallback für Safari/Firefox
+    // Fallback für Safari/Firefox/mobil
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".taskmap.json,application/json";
@@ -570,11 +571,12 @@ export default function App() {
       zoomAt(ev.clientX, ev.clientY, target);
     };
 
+    // capture:true unterbindet, dass Reacts onWheel zusätzlich feuert (kein Doppel-Zoom)
     el.addEventListener("wheel", handler, { passive: false, capture: true });
     return () => {
       el.removeEventListener("wheel", handler, { capture: true } as any);
     };
-  }, [scale, view]);
+  }, [scale, view]); // nutzt aktuellen scale/view-Stand
 
   return (
     <div className="app">
