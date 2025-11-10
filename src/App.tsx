@@ -317,10 +317,12 @@ export default function App() {
   }, []);
 
   /* View toggle */
-  const openMap = () => {
-    if (!projectTitle.trim()) { alert("Please enter a project title first."); return; }
-    setView("map");
-  };
+ const openMap = () => {
+  // wenn leer → automatisch "Project" setzen, statt zu blockieren
+  if (!projectTitle.trim()) setProjectTitle("Project");
+  setView("map");
+};
+
 
   /* ---------- Map: Pan/Pinch ---------- */
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
