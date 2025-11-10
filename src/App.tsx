@@ -1091,7 +1091,7 @@ export default function App() {
                 onPointerDown={(e) => { e.stopPropagation(); }}
                 onContextMenu={(e) => e.preventDefault()}
               >
-                <div className="ctxmenu-title">Farbe</div>
+                <div className="ctxmenu-title">Colour</div>
                 <div className="ctxmenu-swatches">
                   {COLOR_SWATCHES.map((hex) => (
                     <button
@@ -1100,7 +1100,7 @@ export default function App() {
                       style={{ background: hex }}
                       onClick={() => applyColor(hex)}
                       onContextMenu={(e) => { e.preventDefault(); applyColor(hex); }}
-                      aria-label={`Farbe ${hex}`}
+                      aria-label={`Colour ${hex}`}
                     />
                   ))}
                 </div>
