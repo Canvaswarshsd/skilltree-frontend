@@ -859,17 +859,32 @@ export default function App() {
   };
   const closeColorMenu = () => setCtxMenu({ open: false, x: 0, y: 0, taskId: null });
 
-  useEffect(() => {
-    if (!ctxMenu.open) return;
-    const onDown = () => closeColorMenu();
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") closeColorMenu(); };
-    window.addEventListener("pointerdown", onDown, { capture: true });
-    window.addEventListener("keydown", onEsc);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, { capture: true } as any);
-      window.removeEventListener("keydown", onEsc);
-    };
-  }, [ctxMenu.open]);
+useEffect(() => {
+  if (!ctxMenu.open) return;
+
+  // Schließt nur, wenn außerhalb der .ctxmenu geklickt wurde
+  const onDown = (ev: PointerEvent) => {
+    const path = (ev.composedPath && ev.composedPath()) || [];
+    const clickedInside = path.some(
+      (el) => (el as HTMLElement)?.classList?.contains?.("ctxmenu")
+    );
+    if (!clickedInside) closeColorMenu();
+  };
+
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeColorMenu();
+  };
+
+  // WICHTIG: kein capture!
+  window.addEventListener("pointerdown", onDown);
+  window.addEventListener("keydown", onEsc);
+
+  return () => {
+    window.removeEventListener("pointerdown", onDown);
+    window.removeEventListener("keydown", onEsc);
+  };
+}, [ctxMenu.open]);
+
 
   const applyColor = (hex: string) => {
     if (!ctxMenu.taskId) return;
