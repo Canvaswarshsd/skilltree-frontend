@@ -21,7 +21,7 @@ type SavedState = {
   pan: { x: number; y: number };
   scale: number;
   ts: number;
-  /** NEU: pro Root-Task eine Farbüberschreibung */
+  /** pro Root-Task eine Farbüberschreibung */
   branchColorOverride?: Record<string, string>;
 };
 
@@ -68,6 +68,15 @@ function downloadJSON(filename: string, data: unknown) {
 
 /* Colors for root branches (inherited by descendants) */
 const BRANCH_COLORS = ["#f97316", "#6366f1", "#22c55e", "#eab308", "#0ea5e9", "#f43f5e"];
+
+/* Zusatz-Palette fürs Kontextmenü (angenehme UI-Farben) */
+const COLOR_SWATCHES = [
+  "#f97316", "#fb923c", "#f59e0b", "#eab308",
+  "#22c55e", "#10b981", "#14b8a6", "#06b6d4",
+  "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6",
+  "#a855f7", "#ef4444", "#f43f5e", "#ec4899",
+  "#94a3b8", "#64748b", "#111827", "#020617"
+];
 
 /* Node radii */
 const R_CENTER = 75;
@@ -675,7 +684,7 @@ export default function App() {
       maxY = Math.max(maxY, e.y1, e.y2);
     }
 
-    // Padding damit „schön gerahmt“
+    // Padding
     const PAD = 140;
     minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
 
@@ -690,7 +699,6 @@ export default function App() {
     const s = (t || "").trim();
     if (!s) return ["Project"];
     if (s.length <= maxLen) return [s];
-    // simple wrap by spaces
     const words = s.split(/\s+/);
     const lines: string[] = [];
     let cur = "";
@@ -703,7 +711,7 @@ export default function App() {
       }
     }
     if (cur) lines.push(cur);
-    return lines.slice(0, 3); // max 3 Zeilen
+    return lines.slice(0, 3);
   }
 
   function buildSVGForExport(): { svg: string; width: number; height: number } {
@@ -711,7 +719,6 @@ export default function App() {
     const width = Math.ceil(bbox.maxX - bbox.minX);
     const height = Math.ceil(bbox.maxY - bbox.minY);
 
-    // SVG Background + edges + nodes
     const parts: string[] = [];
     parts.push(
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bbox.minX} ${bbox.minY} ${width} ${height}">`,
@@ -721,15 +728,12 @@ export default function App() {
       `<rect x="${bbox.minX}" y="${bbox.minY}" width="${width}" height="${height}" fill="#ffffff"/>`
     );
 
-    // Edges (runde Kappen)
     for (const e of edges) {
       parts.push(`<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${e.color}" stroke-width="6" stroke-linecap="round"/>`);
     }
 
-    // Nodes (Kreise + Text)
     for (const n of nodes) {
       parts.push(`<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.id === "CENTER" ? "#020617" : n.color}" />`);
-
       const maxLen = n.id === "CENTER" ? 18 : (n.r === R_ROOT ? 14 : 12);
       const fs = n.fontSize;
       const lines = splitTitleLines(n.title, maxLen);
@@ -775,7 +779,7 @@ export default function App() {
     try {
       setDownloadOpen(false);
       const { svg, width, height } = buildSVGForExport();
-      const canvas = await svgToCanvas(svg, width, height, 2); // hohe Auflösung
+      const canvas = await svgToCanvas(svg, width, height, 2);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
       const a = document.createElement("a");
       a.href = dataUrl;
@@ -789,7 +793,6 @@ export default function App() {
     }
   }
 
-  // jsPDF lazy laden (nur wenn PDF klick)
   async function loadJsPDF() {
     if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF;
     await new Promise<void>((resolve, reject) => {
@@ -872,16 +875,6 @@ export default function App() {
     if (!ctxMenu.taskId) return;
     const rootId = getRootId(ctxMenu.taskId);
     setBranchColorOverride(prev => ({ ...prev, [rootId]: hex }));
-    closeColorMenu();
-  };
-  const resetColor = () => {
-    if (!ctxMenu.taskId) return;
-    const rootId = getRootId(ctxMenu.taskId);
-    setBranchColorOverride(prev => {
-      const n = { ...prev };
-      delete n[rootId];
-      return n;
-    });
     closeColorMenu();
   };
 
@@ -1056,15 +1049,18 @@ export default function App() {
                 onContextMenu={(e) => e.preventDefault()}
               >
                 <div className="ctxmenu-title">Farbe</div>
-                <div className="ctxmenu-row">
-                  <input
-                    type="color"
-                    className="ctxmenu-color"
-                    defaultValue={colorForRoot(getRootId(ctxMenu.taskId))}
-                    onChange={(e) => applyColor(e.currentTarget.value)}
-                  />
+                <div className="ctxmenu-swatches">
+                  {COLOR_SWATCHES.map((hex) => (
+                    <button
+                      key={hex}
+                      className="ctxmenu-swatch"
+                      style={{ background: hex }}
+                      onClick={() => applyColor(hex)}
+                      onContextMenu={(e) => { e.preventDefault(); applyColor(hex); }}
+                      aria-label={`Farbe ${hex}`}
+                    />
+                  ))}
                 </div>
-                <button className="ctxmenu-item" onClick={resetColor}>Zur Standardfarbe</button>
               </div>
             )}
           </div>

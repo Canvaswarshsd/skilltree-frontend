@@ -246,29 +246,31 @@ html, body { overflow: hidden; }
   border: 1px solid rgba(255,255,255,.12);
   border-radius: .5rem;
   box-shadow: 0 12px 36px rgba(0,0,0,.35);
-  padding: .5rem .55rem;
-  min-width: 180px;
+  padding: .6rem .7rem;
+  min-width: 210px;
 }
 .ctxmenu-title {
   font-weight: 700;
   font-size: .9rem;
-  margin-bottom: .4rem;
+  margin-bottom: .5rem;
   opacity: .9;
 }
-.ctxmenu-row {
-  display: flex; align-items: center; gap: .5rem;
-  margin-bottom: .35rem;
+.ctxmenu-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 22px);
+  gap: 8px;
 }
-.ctxmenu-color {
-  width: 40px; height: 28px; padding: 0; border: none; background: transparent; cursor: pointer;
+.ctxmenu-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.25);
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
 }
-.ctxmenu-item {
-  display: block; width: 100%;
-  background: transparent; border: 1px solid rgba(148,163,184,.25);
-  color: #fff; padding: .35rem .5rem; border-radius: .4rem;
-  cursor: pointer; font-weight: 600; font-size: .85rem;
-}
-.ctxmenu-item:hover { background: rgba(148,163,184,.15); }
+.ctxmenu-swatch:hover { transform: translateY(-1px); }
 
 /* Responsive */
 @media (max-width: 1100px){
