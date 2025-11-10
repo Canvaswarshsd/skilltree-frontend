@@ -6,6 +6,8 @@ type Task = {
   id: string;
   title: string;
   parentId: string | null;
+  /** Optional: individuelle Node-Farbe nur für diesen Task (betrifft nicht die Linien) */
+  color?: string;
 };
 
 function makeId() {
@@ -21,7 +23,7 @@ type SavedState = {
   pan: { x: number; y: number };
   scale: number;
   ts: number;
-  /** pro Root-Task eine Farbüberschreibung */
+  /** pro Root-Task eine Farbüberschreibung (bestimmt Linienfarbe + Root-Kreis) */
   branchColorOverride?: Record<string, string>;
   /** Farbe des zentralen Projekt-Knotens */
   centerColor?: string;
@@ -146,6 +148,7 @@ export default function App() {
 
   const roots = useMemo(() => tasks.filter(t => t.parentId === null), [tasks]);
   const childrenOf = (id: string) => tasks.filter(t => t.parentId === id);
+  const getTask = (id: string) => tasks.find(t => t.id === id);
 
   const addTask = () => {
     const n = tasks.length + 1;
@@ -625,6 +628,12 @@ export default function App() {
     const base = BRANCH_COLORS[idx >= 0 ? idx % BRANCH_COLORS.length : 0];
     return branchColorOverride[rootId] ?? base;
   };
+  const nodeColor = (taskId: string, rootColor: string): string => {
+    const t = getTask(taskId);
+    if (!t) return rootColor;
+    if (t.parentId === null) return rootColor; // Root-Kreis folgt Root-Farbe
+    return t.color ?? rootColor;               // Child: eigene Farbe oder Root-Farbe
+  };
 
   function computeExportLayout(): { nodes: NodeGeom[]; edges: EdgeGeom[]; bbox: {minX:number;minY:number;maxX:number;maxY:number} } {
     const nodes: NodeGeom[] = [];
@@ -639,7 +648,7 @@ export default function App() {
     const getOff = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
 
     // Helper: recurse children
-    function placeChildren(parentId: string, px: number, py: number, pr: number, color: string, gpx: number, gpy: number) {
+    function placeChildren(parentId: string, px: number, py: number, pr: number, rootColor: string, gpx: number, gpy: number) {
       const kids = getChildren(parentId);
       if (kids.length === 0) return;
 
@@ -654,14 +663,15 @@ export default function App() {
         const cx = px + Math.cos(ang) * RING + ko.x;
         const cy = py + Math.sin(ang) * RING + ko.y;
 
-        // Edge
+        // Edge (bleibt Root-Farbe!)
         const seg = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
-        edges.push({ x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, color });
+        edges.push({ x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, color: rootColor });
 
-        // Node
-        nodes.push({ id: kid.id, title: kid.title, x: cx, y: cy, r: R_CHILD, color, fontSize: 16 });
+        // Node (eigene Farbe möglich)
+        const nColor = nodeColor(kid.id, rootColor);
+        nodes.push({ id: kid.id, title: kid.title, x: cx, y: cy, r: R_CHILD, color: nColor, fontSize: 16 });
 
-        placeChildren(kid.id, cx, cy, R_CHILD, color, px, py);
+        placeChildren(kid.id, cx, cy, R_CHILD, rootColor, px, py);
       });
     }
 
@@ -670,17 +680,17 @@ export default function App() {
       const ro = getOff(root.id);
       const rx = Math.cos(ang) * ROOT_RADIUS + ro.x;
       const ry = Math.sin(ang) * ROOT_RADIUS + ro.y;
-      const color = branchColorOverride?.[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
+      const rootColor = branchColorOverride?.[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
 
-      // Edge center -> root
+      // Edge center -> root (Root-Farbe)
       const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
-      edges.push({ x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, color });
+      edges.push({ x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, color: rootColor });
 
-      // Root node
-      nodes.push({ id: root.id, title: root.title, x: rx, y: ry, r: R_ROOT, color, fontSize: 18 });
+      // Root node (immer Root-Farbe)
+      nodes.push({ id: root.id, title: root.title, x: rx, y: ry, r: R_ROOT, color: rootColor, fontSize: 18 });
 
       // Children of root
-      placeChildren(root.id, rx, ry, R_ROOT, color, 0, 0);
+      placeChildren(root.id, rx, ry, R_ROOT, rootColor, 0, 0);
     });
 
     // Bounding box (inkl. Kreise)
@@ -902,13 +912,23 @@ export default function App() {
 
   const applyColor = (hex: string) => {
     if (!ctxMenu.taskId) return;
+
     if (ctxMenu.taskId === CENTER_ID) {
       setCenterColor(hex);
       closeColorMenu();
       return;
     }
-    const rootId = getRootId(ctxMenu.taskId);
-    setBranchColorOverride(prev => ({ ...prev, [rootId]: hex }));
+
+    const t = getTask(ctxMenu.taskId);
+    if (!t) { closeColorMenu(); return; }
+
+    if (t.parentId === null) {
+      // Root: Branch-Farbe ändern (Linien + Root-Kreis)
+      setBranchColorOverride(prev => ({ ...prev, [t.id]: hex }));
+    } else {
+      // Child: Nur dieser Node (kein Linien-Einfluss)
+      setTasks(prev => prev.map(x => x.id === t.id ? { ...x, color: hex } : x));
+    }
     closeColorMenu();
   };
 
@@ -1062,12 +1082,12 @@ export default function App() {
                   const ro = getOffset(root.id);
                   const rx = rxBase + ro.x;
                   const ry = ryBase + ro.y;
-                  const color = branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
+                  const rootColor = branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
                   return (
                     <React.Fragment key={`root-node-${root.id}`}>
                       <div
                         className="skill-node root-node"
-                        style={{ transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`, background: color }}
+                        style={{ transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`, background: rootColor }}
                         onPointerDown={(e) => startNodeDrag(root.id, e)}
                         onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                         lang={document.documentElement.lang || navigator.language || "en"}
@@ -1075,7 +1095,8 @@ export default function App() {
                         {root.title}
                       </div>
                       {renderChildNodesWithOffsets(
-                        root.id, rx, ry, color, childrenOf, 0, 0, getOffset, startNodeDrag, onNodeContextMenu
+                        root.id, rx, ry, rootColor, childrenOf, 0, 0, getOffset, startNodeDrag, onNodeContextMenu,
+                        (id, fallback) => { const t = getTask(id); return t?.parentId ? (t.color ?? fallback) : fallback; }
                       )}
                     </React.Fragment>
                   );
@@ -1212,7 +1233,7 @@ function Row({
 function renderChildLinesWithOffsets(
   parentId: string,
   px: number, py: number, pr: number,
-  color: string,
+  rootColor: string,
   childrenOf: (id: string) => Task[],
   gpx: number, gpy: number,
   getOffset: (id: string) => { x: number; y: number }
@@ -1238,10 +1259,10 @@ function renderChildLinesWithOffsets(
     const { x1, y1, x2, y2 } = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
     lines.push(
       <line key={`line-${parentId}-${kid.id}`} x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={color} strokeWidth="3" strokeLinecap="round"/>
+            stroke={rootColor} strokeWidth="3" strokeLinecap="round"/>
     );
 
-    lines.push(...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, color, childrenOf, px, py, getOffset));
+    lines.push(...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, rootColor, childrenOf, px, py, getOffset));
   });
 
   return lines;
@@ -1250,12 +1271,13 @@ function renderChildLinesWithOffsets(
 function renderChildNodesWithOffsets(
   parentId: string,
   px: number, py: number,
-  color: string,
+  rootColor: string,
   childrenOf: (id: string) => Task[],
   gpx: number, gpy: number,
   getOffset: (id: string) => { x: number; y: number },
   startNodeDrag: (id: string, e: React.PointerEvent) => void,
-  onNodeContextMenu: (e: React.MouseEvent, id: string) => void
+  onNodeContextMenu: (e: React.MouseEvent, id: string) => void,
+  getNodeColor: (id: string, fallback: string) => string
 ): JSX.Element[] {
   const kids = childrenOf(parentId);
   if (kids.length === 0) return [];
@@ -1275,11 +1297,13 @@ function renderChildNodesWithOffsets(
     const cx = cxBase + ko.x;
     const cy = cyBase + ko.y;
 
+    const nColor = getNodeColor(kid.id, rootColor);
+
     nodes.push(
       <div
         key={`node-${parentId}-${kid.id}`}
         className="skill-node child-node"
-        style={{ transform: `translate(${cx}px, ${cy}px) translate(-50%, -50%)`, background: color }}
+        style={{ transform: `translate(${cx}px, ${cy}px) translate(-50%, -50%)`, background: nColor }}
         onPointerDown={(e) => startNodeDrag(kid.id, e)}
         onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
         lang={document.documentElement.lang || navigator.language || "en"}
@@ -1288,7 +1312,7 @@ function renderChildNodesWithOffsets(
       </div>
     );
 
-    nodes.push(...renderChildNodesWithOffsets(kid.id, cx, cy, color, childrenOf, px, py, getOffset, startNodeDrag, onNodeContextMenu));
+    nodes.push(...renderChildNodesWithOffsets(kid.id, cx, cy, rootColor, childrenOf, px, py, getOffset, startNodeDrag, onNodeContextMenu, getNodeColor));
   });
 
   return nodes;
