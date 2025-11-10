@@ -135,28 +135,6 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"edit" | "map">("edit");
 
-  /* ====== NEU: automatische Silbentrennung (DE/EN) nur für .hyphenate ====== */
-  useEffect(() => {
-    (window as any).Hyphenopoly = {
-      require: {
-        "de": "supercharged",
-        "en-us": "supercharged",
-        "en-gb": "supercharged",
-        "en": "supercharged"
-      },
-      setup: {
-        selectors: { ".hyphenate": {} },
-        defaultlanguage: "en"
-      }
-    };
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/hyphenopoly@4.12.0/Hyphenopoly_Loader.js";
-    s.async = true;
-    document.head.appendChild(s);
-    return () => { s.remove(); };
-  }, []);
-  /* ======================================================================== */
-
   /* Panning (Visualize) */
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const panning = useRef(false);
@@ -339,11 +317,12 @@ export default function App() {
   }, []);
 
   /* View toggle */
-  const openMap = () => {
-    // wenn leer → automatisch "Project" setzen, statt zu blockieren
-    if (!projectTitle.trim()) setProjectTitle("Project");
-    setView("map");
-  };
+ const openMap = () => {
+  // wenn leer → automatisch "Project" setzen, statt zu blockieren
+  if (!projectTitle.trim()) setProjectTitle("Project");
+  setView("map");
+};
+
 
   /* ---------- Map: Pan/Pinch ---------- */
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -1094,13 +1073,7 @@ export default function App() {
                   }}
                   lang={document.documentElement.lang || navigator.language || "en"}
                 >
-                  {/* TEXT: Center */}
-                  <span
-                    className="hyphenate"
-                    lang={(document.documentElement.lang || navigator.language || "en").toLowerCase()}
-                  >
-                    {projectTitle || "Project"}
-                  </span>
+                  {projectTitle || "Project"}
                 </div>
 
                 {roots.map((root, i) => {
@@ -1121,13 +1094,7 @@ export default function App() {
                         onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                         lang={document.documentElement.lang || navigator.language || "en"}
                       >
-                        {/* TEXT: Root */}
-                        <span
-                          className="hyphenate"
-                          lang={(document.documentElement.lang || navigator.language || "en").toLowerCase()}
-                        >
-                          {root.title}
-                        </span>
+                        {root.title}
                       </div>
                       {renderChildNodesWithOffsets(
                         root.id, rx, ry, rootColor, childrenOf, 0, 0, getOffset, startNodeDrag, onNodeContextMenu,
@@ -1343,13 +1310,7 @@ function renderChildNodesWithOffsets(
         onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
         lang={document.documentElement.lang || navigator.language || "en"}
       >
-        {/* TEXT: Child */}
-        <span
-          className="hyphenate"
-          lang={(document.documentElement.lang || navigator.language || "en").toLowerCase()}
-        >
-          {kid.title}
-        </span>
+        {kid.title}
       </div>
     );
 
