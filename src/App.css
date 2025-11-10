@@ -216,8 +216,21 @@ html, body { overflow: hidden; }
   text-align: center; font-weight: 700; color: #fff;
   position: absolute; z-index: 2; box-shadow: 0 12px 36px rgba(0,0,0,.35);
   left: 0; top: 0;
-  padding: 0 12px; line-height: 1.1; white-space: normal; word-break: break-word; overflow-wrap: anywhere; hyphens: auto;
+  padding: 0 12px;
+  line-height: 1.15;
+
+  /* >>> Konsistente Zeilenumbrüche & Silbentrennung <<< */
+  white-space: normal;           /* Zeilenumbruch erlaubt */
+  word-break: normal;            /* keine willkürlichen Trennungen */
+  overflow-wrap: break-word;     /* nur trennen, wenn das Wort GAR NICHT passt */
+  hyphens: auto;                 /* Silbentrennung nach Wörterbuch */
+  -webkit-hyphens: auto;
+  -ms-hyphens: auto;
+
+  /* (Optional, modern) schönere Umbrüche, ohne Layout zu sprengen */
+  text-wrap: pretty;
 }
+
 .center-node { 
   width: 150px; height: 150px; background: #020617; 
   border: 2px solid rgba(255,255,255,.1); color: #fff; 
