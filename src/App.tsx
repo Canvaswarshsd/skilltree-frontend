@@ -21,6 +21,8 @@ type SavedState = {
   pan: { x: number; y: number };
   scale: number;
   ts: number;
+  /** NEU: pro Root-Task eine Farbüberschreibung */
+  branchColorOverride?: Record<string, string>;
 };
 
 function serializeState(
@@ -28,9 +30,10 @@ function serializeState(
   tasks: Task[],
   nodeOffset: Record<string, { x: number; y: number }>,
   pan: { x: number; y: number },
-  scale: number
+  scale: number,
+  branchColorOverride: Record<string, string>
 ): SavedState {
-  return { v: 1, projectTitle, tasks, nodeOffset, pan, scale, ts: Date.now() };
+  return { v: 1, projectTitle, tasks, nodeOffset, pan, scale, ts: Date.now(), branchColorOverride };
 }
 
 function slugifyTitle(t: string) {
@@ -448,9 +451,11 @@ export default function App() {
   /* File System Access handle */
   const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
 
+  const [branchColorOverride, setBranchColorOverride] = useState<Record<string, string>>({});
+
   const doSave   = async () => {
     setSaveOpen(false);
-    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale);
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride);
 
     try {
       if (fileHandle && "createWritable" in fileHandle) {
@@ -468,7 +473,7 @@ export default function App() {
 
   const doSaveAs = async () => {
     setSaveOpen(false);
-    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale);
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride);
     const supportsPicker = "showSaveFilePicker" in window;
 
     if (supportsPicker) {
@@ -505,6 +510,7 @@ export default function App() {
       setPan(obj.pan ?? { x: 0, y: 0 });
       setScale(typeof obj.scale === "number" ? obj.scale : 1);
       setNodeOffset(obj.nodeOffset ?? {});
+      setBranchColorOverride(obj.branchColorOverride ?? {});
       setView("map");
     } catch (err) {
       alert("Could not open file. Is this a valid .taskmap.json?");
@@ -581,6 +587,21 @@ export default function App() {
   type NodeGeom = { id: string; title: string; x: number; y: number; r: number; color: string; fontSize: number; };
   type EdgeGeom = { x1: number; y1: number; x2: number; y2: number; color: string; };
 
+  // Root-Helper (für Menü & Farbe)
+  const getRootId = (id: string): string => {
+    let cur = tasks.find(t => t.id === id);
+    if (!cur) return id;
+    while (cur && cur.parentId) {
+      cur = tasks.find(t => t.id === cur!.parentId);
+    }
+    return cur?.id ?? id;
+  };
+  const colorForRoot = (rootId: string): string => {
+    const idx = roots.findIndex(r => r.id === rootId);
+    const base = BRANCH_COLORS[idx >= 0 ? idx % BRANCH_COLORS.length : 0];
+    return branchColorOverride[rootId] ?? base;
+  };
+
   function computeExportLayout(): { nodes: NodeGeom[]; edges: EdgeGeom[]; bbox: {minX:number;minY:number;maxX:number;maxY:number} } {
     const nodes: NodeGeom[] = [];
     const edges: EdgeGeom[] = [];
@@ -625,7 +646,7 @@ export default function App() {
       const ro = getOff(root.id);
       const rx = Math.cos(ang) * ROOT_RADIUS + ro.x;
       const ry = Math.sin(ang) * ROOT_RADIUS + ro.y;
-      const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+      const color = branchColorOverride?.[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
 
       // Edge center -> root
       const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
@@ -825,6 +846,51 @@ export default function App() {
     };
   }, [scale, view]);
 
+  /* ---------- Kontextmenü: Farbe ---------- */
+  const [ctxMenu, setCtxMenu] = useState<{ open: boolean; x: number; y: number; taskId: string | null }>({
+    open: false, x: 0, y: 0, taskId: null
+  });
+
+  const openColorMenu = (clientX: number, clientY: number, taskId: string) => {
+    setCtxMenu({ open: true, x: clientX, y: clientY, taskId });
+  };
+  const closeColorMenu = () => setCtxMenu({ open: false, x: 0, y: 0, taskId: null });
+
+  useEffect(() => {
+    if (!ctxMenu.open) return;
+    const onDown = () => closeColorMenu();
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") closeColorMenu(); };
+    window.addEventListener("pointerdown", onDown, { capture: true });
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, { capture: true } as any);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [ctxMenu.open]);
+
+  const applyColor = (hex: string) => {
+    if (!ctxMenu.taskId) return;
+    const rootId = getRootId(ctxMenu.taskId);
+    setBranchColorOverride(prev => ({ ...prev, [rootId]: hex }));
+    closeColorMenu();
+  };
+  const resetColor = () => {
+    if (!ctxMenu.taskId) return;
+    const rootId = getRootId(ctxMenu.taskId);
+    setBranchColorOverride(prev => {
+      const n = { ...prev };
+      delete n[rootId];
+      return n;
+    });
+    closeColorMenu();
+  };
+
+  const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openColorMenu(e.clientX, e.clientY, id);
+  };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -930,7 +996,7 @@ export default function App() {
                     const rx = rxBase + ro.x;
                     const ry = ryBase + ro.y;
                     const { x1, y1, x2, y2 } = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
-                    const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+                    const color = branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
                     return (
                       <line key={`root-line-${root.id}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="3" strokeLinecap="round"/>
                     );
@@ -943,7 +1009,7 @@ export default function App() {
                     const ro = getOffset(root.id);
                     const rx = rxBase + ro.x;
                     const ry = ryBase + ro.y;
-                    const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+                    const color = branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
                     return renderChildLinesWithOffsets(root.id, rx, ry, R_ROOT, color, childrenOf, 0, 0, getOffset);
                   })}
                 </svg>
@@ -960,25 +1026,47 @@ export default function App() {
                   const ro = getOffset(root.id);
                   const rx = rxBase + ro.x;
                   const ry = ryBase + ro.y;
-                  const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+                  const color = branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
                   return (
                     <React.Fragment key={`root-node-${root.id}`}>
                       <div
                         className="skill-node root-node"
                         style={{ transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`, background: color }}
                         onPointerDown={(e) => startNodeDrag(root.id, e)}
+                        onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                         lang={document.documentElement.lang || navigator.language || "en"}
                       >
                         {root.title}
                       </div>
                       {renderChildNodesWithOffsets(
-                        root.id, rx, ry, color, childrenOf, 0, 0, getOffset, startNodeDrag
+                        root.id, rx, ry, color, childrenOf, 0, 0, getOffset, startNodeDrag, onNodeContextMenu
                       )}
                     </React.Fragment>
                   );
                 })}
               </div>
             </div>
+
+            {/* Kontextmenü Overlay */}
+            {ctxMenu.open && ctxMenu.taskId && (
+              <div
+                className="ctxmenu"
+                style={{ left: ctxMenu.x, top: ctxMenu.y }}
+                onPointerDown={(e) => { e.stopPropagation(); }}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <div className="ctxmenu-title">Farbe</div>
+                <div className="ctxmenu-row">
+                  <input
+                    type="color"
+                    className="ctxmenu-color"
+                    defaultValue={colorForRoot(getRootId(ctxMenu.taskId))}
+                    onChange={(e) => applyColor(e.currentTarget.value)}
+                  />
+                </div>
+                <button className="ctxmenu-item" onClick={resetColor}>Zur Standardfarbe</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1127,7 +1215,8 @@ function renderChildNodesWithOffsets(
   childrenOf: (id: string) => Task[],
   gpx: number, gpy: number,
   getOffset: (id: string) => { x: number; y: number },
-  startNodeDrag: (id: string, e: React.PointerEvent) => void
+  startNodeDrag: (id: string, e: React.PointerEvent) => void,
+  onNodeContextMenu: (e: React.MouseEvent, id: string) => void
 ): JSX.Element[] {
   const kids = childrenOf(parentId);
   if (kids.length === 0) return [];
@@ -1153,13 +1242,14 @@ function renderChildNodesWithOffsets(
         className="skill-node child-node"
         style={{ transform: `translate(${cx}px, ${cy}px) translate(-50%, -50%)`, background: color }}
         onPointerDown={(e) => startNodeDrag(kid.id, e)}
+        onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
         lang={document.documentElement.lang || navigator.language || "en"}
       >
         {kid.title}
       </div>
     );
 
-    nodes.push(...renderChildNodesWithOffsets(kid.id, cx, cy, color, childrenOf, px, py, getOffset, startNodeDrag));
+    nodes.push(...renderChildNodesWithOffsets(kid.id, cx, cy, color, childrenOf, px, py, getOffset, startNodeDrag, onNodeContextMenu));
   });
 
   return nodes;
