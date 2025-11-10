@@ -23,6 +23,8 @@ type SavedState = {
   ts: number;
   /** pro Root-Task eine Farbüberschreibung */
   branchColorOverride?: Record<string, string>;
+  /** Farbe des zentralen Projekt-Knotens */
+  centerColor?: string;
 };
 
 function serializeState(
@@ -31,9 +33,20 @@ function serializeState(
   nodeOffset: Record<string, { x: number; y: number }>,
   pan: { x: number; y: number },
   scale: number,
-  branchColorOverride: Record<string, string>
+  branchColorOverride: Record<string, string>,
+  centerColor: string
 ): SavedState {
-  return { v: 1, projectTitle, tasks, nodeOffset, pan, scale, ts: Date.now(), branchColorOverride };
+  return {
+    v: 1,
+    projectTitle,
+    tasks,
+    nodeOffset,
+    pan,
+    scale,
+    ts: Date.now(),
+    branchColorOverride,
+    centerColor
+  };
 }
 
 function slugifyTitle(t: string) {
@@ -461,10 +474,11 @@ export default function App() {
   const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
 
   const [branchColorOverride, setBranchColorOverride] = useState<Record<string, string>>({});
+  const [centerColor, setCenterColor] = useState<string>("#020617");
 
   const doSave   = async () => {
     setSaveOpen(false);
-    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride);
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride, centerColor);
 
     try {
       if (fileHandle && "createWritable" in fileHandle) {
@@ -482,7 +496,7 @@ export default function App() {
 
   const doSaveAs = async () => {
     setSaveOpen(false);
-    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride);
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride, centerColor);
     const supportsPicker = "showSaveFilePicker" in window;
 
     if (supportsPicker) {
@@ -520,6 +534,7 @@ export default function App() {
       setScale(typeof obj.scale === "number" ? obj.scale : 1);
       setNodeOffset(obj.nodeOffset ?? {});
       setBranchColorOverride(obj.branchColorOverride ?? {});
+      setCenterColor(obj.centerColor ?? "#020617");
       setView("map");
     } catch (err) {
       alert("Could not open file. Is this a valid .taskmap.json?");
@@ -615,8 +630,8 @@ export default function App() {
     const nodes: NodeGeom[] = [];
     const edges: EdgeGeom[] = [];
 
-    // Center node
-    nodes.push({ id: "CENTER", title: projectTitle || "Project", x: 0, y: 0, r: R_CENTER, color: "#020617", fontSize: 20 });
+    // Center node (mit frei wählbarer Farbe)
+    nodes.push({ id: "CENTER", title: projectTitle || "Project", x: 0, y: 0, r: R_CENTER, color: centerColor, fontSize: 20 });
 
     const rootsList = tasks.filter(t => t.parentId === null);
     const total = Math.max(rootsList.length, 1);
@@ -676,7 +691,6 @@ export default function App() {
       maxX = Math.max(maxX, n.x + n.r);
       maxY = Math.max(maxY, n.y + n.r);
     }
-    // Lines liegen innerhalb der Knoten-Extents, aber defensiv:
     for (const e of edges) {
       minX = Math.min(minX, e.x1, e.x2);
       minY = Math.min(minY, e.y1, e.y2);
@@ -684,7 +698,6 @@ export default function App() {
       maxY = Math.max(maxY, e.y1, e.y2);
     }
 
-    // Padding
     const PAD = 140;
     minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
 
@@ -733,7 +746,7 @@ export default function App() {
     }
 
     for (const n of nodes) {
-      parts.push(`<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.id === "CENTER" ? "#020617" : n.color}" />`);
+      parts.push(`<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" />`);
       const maxLen = n.id === "CENTER" ? 18 : (n.r === R_ROOT ? 14 : 12);
       const fs = n.fontSize;
       const lines = splitTitleLines(n.title, maxLen);
@@ -854,40 +867,46 @@ export default function App() {
     open: false, x: 0, y: 0, taskId: null
   });
 
+  const CENTER_ID = "__CENTER__";
+
   const openColorMenu = (clientX: number, clientY: number, taskId: string) => {
     setCtxMenu({ open: true, x: clientX, y: clientY, taskId });
   };
   const closeColorMenu = () => setCtxMenu({ open: false, x: 0, y: 0, taskId: null });
 
-useEffect(() => {
-  if (!ctxMenu.open) return;
+  useEffect(() => {
+    if (!ctxMenu.open) return;
 
-  // Schließt nur, wenn außerhalb der .ctxmenu geklickt wurde
-  const onDown = (ev: PointerEvent) => {
-    const path = (ev.composedPath && ev.composedPath()) || [];
-    const clickedInside = path.some(
-      (el) => (el as HTMLElement)?.classList?.contains?.("ctxmenu")
-    );
-    if (!clickedInside) closeColorMenu();
-  };
+    // Schließt nur, wenn außerhalb der .ctxmenu geklickt wurde
+    const onDown = (ev: PointerEvent) => {
+      const path = (ev.composedPath && ev.composedPath()) || [];
+      const clickedInside = path.some(
+        (el) => (el as HTMLElement)?.classList?.contains?.("ctxmenu")
+      );
+      if (!clickedInside) closeColorMenu();
+    };
 
-  const onEsc = (e: KeyboardEvent) => {
-    if (e.key === "Escape") closeColorMenu();
-  };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeColorMenu();
+    };
 
-  // WICHTIG: kein capture!
-  window.addEventListener("pointerdown", onDown);
-  window.addEventListener("keydown", onEsc);
+    // kein capture!
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onEsc);
 
-  return () => {
-    window.removeEventListener("pointerdown", onDown);
-    window.removeEventListener("keydown", onEsc);
-  };
-}, [ctxMenu.open]);
-
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [ctxMenu.open]);
 
   const applyColor = (hex: string) => {
     if (!ctxMenu.taskId) return;
+    if (ctxMenu.taskId === CENTER_ID) {
+      setCenterColor(hex);
+      closeColorMenu();
+      return;
+    }
     const rootId = getRootId(ctxMenu.taskId);
     setBranchColorOverride(prev => ({ ...prev, [rootId]: hex }));
     closeColorMenu();
@@ -1022,7 +1041,16 @@ useEffect(() => {
                   })}
                 </svg>
 
-                <div className="skill-node center-node" lang={document.documentElement.lang || navigator.language || "en"}>
+                <div
+                  className="skill-node center-node"
+                  style={{ background: centerColor }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openColorMenu(e.clientX, e.clientY, CENTER_ID);
+                  }}
+                  lang={document.documentElement.lang || navigator.language || "en"}
+                >
                   {projectTitle || "Project"}
                 </div>
 
