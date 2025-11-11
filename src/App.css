@@ -210,7 +210,7 @@ html, body { overflow: hidden; }
 .map-origin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 0; height: 0; }
 .map-svg { position: absolute; width: 4000px; height: 4000px; left: -2000px; top: -2000px; overflow: visible; z-index: 1; }
 
-/* =========  Nodes: präzise Silbentrennung (DE & EN)  ========= */
+/* =========  Nodes (Anzeige im Kreis)  ========= */
 .skill-node {
   width: 120px; height: 120px; border-radius: 9999px;
   display: flex; align-items: center; justify-content: center;
@@ -220,21 +220,15 @@ html, body { overflow: hidden; }
   padding: 0 12px;
   line-height: 1.15;
 
-  /* Policy: nur Silbentrennung, keine „harten“ Wortbrüche */
+  /* „Nur Silbentrennung“ – Wörterbuch wo möglich; für Tippfehler sorgt Edit-Preview (s. u.) */
   white-space: normal;
   word-break: normal;
   overflow-wrap: normal;
-
-  /* Wörterbuchbasierte Trennung – nutzt das nächste lang="" */
   hyphens: auto;
   -webkit-hyphens: auto;
   -ms-hyphens: auto;
-
-  /* Feinschliff (optional) */
   text-wrap: pretty;
   text-wrap: balance;
-
-  /* Falls unterstützt: sichtbares Trennzeichen */
   hyphenate-character: "-";
 }
 
@@ -245,52 +239,36 @@ html, body { overflow: hidden; }
 }
 .child-node { width: 100px; height: 100px; font-size: .75rem; }
 
-/* Center Button */
-.center-btn {
-  position: fixed; top: 72px; left: 12px; z-index: 20000;
-  background: rgba(15,23,42,.85); color: #fff;
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: .5rem; padding: .45rem .8rem; font-weight: 600;
-  cursor: pointer; transition: background .2s ease, transform .05s ease;
-  pointer-events: auto;
+/* =========  Edit-Vorschau: Kreis-Simulator pro Task  ========= */
+.preview-wrap {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .35rem;
+  margin-bottom: .15rem;
 }
-.center-btn:hover { background: rgba(56,189,248,.9); color: #020617; }
-.center-btn:active { transform: translateY(1px); }
-
-/* Kontextmenü Farbe */
-.ctxmenu {
-  position: fixed;
-  z-index: 30000;
-  background: rgba(2,6,23,.98);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: .5rem;
-  box-shadow: 0 12px 36px rgba(0,0,0,.35);
-  padding: .6rem .7rem;
-  min-width: 210px;
+.circle-preview {
+  width: 120px;
+  height: 120px;
+  border-radius: 9999px;
+  background: #f97316; /* orange */
+  box-shadow: 0 10px 28px rgba(0,0,0,.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px; /* identisch zu .skill-node */
 }
-.ctxmenu-title {
+.preview-label {
+  display: inline-block;
+  text-align: center;
   font-weight: 700;
-  font-size: .9rem;
-  margin-bottom: .5rem;
-  opacity: .9;
+  color: #fff;
+  line-height: 1.15;
+  /* gleiche Typo wie im Node (Annäherung) */
+  font-size: 0.9rem;
+  max-width: 96px; /* 120 - 2*12 padding */
+  white-space: normal;
 }
-.ctxmenu-swatches {
-  display: grid;
-  grid-template-columns: repeat(8, 22px);
-  gap: 8px;
-}
-.ctxmenu-swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,.25);
-  box-shadow: 0 2px 6px rgba(0,0,0,.25);
-  cursor: pointer;
-  padding: 0;
-  outline: none;
-}
-.ctxmenu-swatch:hover { transform: translateY(-1px); }
 
 /* Utility: Wörter niemals trennen (für "Verzeihworte") */
 .no-hyphen {
