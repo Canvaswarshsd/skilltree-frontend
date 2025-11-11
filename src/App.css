@@ -1,3 +1,4 @@
+/* frontend/src/App.css */
 /* Fullscreen & reset */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; width: 100%; margin: 0; }
@@ -209,7 +210,7 @@ html, body { overflow: hidden; }
 .map-origin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 0; height: 0; }
 .map-svg { position: absolute; width: 4000px; height: 4000px; left: -2000px; top: -2000px; overflow: visible; z-index: 1; }
 
-/* Nodes */
+/* =========  Nodes: präzise Silbentrennung (DE & EN)  ========= */
 .skill-node {
   width: 120px; height: 120px; border-radius: 9999px;
   display: flex; align-items: center; justify-content: center;
@@ -219,16 +220,22 @@ html, body { overflow: hidden; }
   padding: 0 12px;
   line-height: 1.15;
 
-  /* >>> Konsistente Zeilenumbrüche & Silbentrennung <<< */
-  white-space: normal;           /* Zeilenumbruch erlaubt */
-  word-break: normal;            /* keine willkürlichen Trennungen */
-  overflow-wrap: break-word;     /* nur trennen, wenn das Wort GAR NICHT passt */
-  hyphens: auto;                 /* Silbentrennung nach Wörterbuch */
+  /* Policy: nur Silbentrennung, keine „harten“ Wortbrüche */
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+
+  /* Wörterbuchbasierte Trennung – nutzt das nächste lang="" */
+  hyphens: auto;
   -webkit-hyphens: auto;
   -ms-hyphens: auto;
 
-  /* (Optional, modern) schönere Umbrüche, ohne Layout zu sprengen */
+  /* Feinschliff (optional) */
   text-wrap: pretty;
+  text-wrap: balance;
+
+  /* Falls unterstützt: sichtbares Trennzeichen */
+  hyphenate-character: "-";
 }
 
 .center-node { 
@@ -284,6 +291,14 @@ html, body { overflow: hidden; }
   outline: none;
 }
 .ctxmenu-swatch:hover { transform: translateY(-1px); }
+
+/* Utility: Wörter niemals trennen (für "Verzeihworte") */
+.no-hyphen {
+  hyphens: none !important;
+  -webkit-hyphens: none !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+}
 
 /* Responsive */
 @media (max-width: 1100px){

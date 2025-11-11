@@ -65,6 +65,22 @@ function isDescendant(tasks: Task[], possibleDescendant: string, possibleAncesto
   return false;
 }
 
+/** Mini-Heuristik zur Spracherkennung (DE/EN) */
+function detectLang(text: string): "de" | "en" {
+  const s = (text || "").trim();
+  if (!s) return "de";
+  // harte Hinweise auf Deutsch
+  if (/[äöüÄÖÜß]/.test(s)) return "de";
+  // häufige deutsche Funktionswörter
+  const deHits = (s.toLowerCase().match(/\b(und|oder|für|mit|ohne|nicht|zum|zur|ein|eine|der|die|das|den)\b/g) || []).length;
+  const enHits = (s.toLowerCase().match(/\b(the|and|for|with|without|not|to|of|in|on|a|an)\b/g) || []).length;
+  if (deHits > enHits) return "de";
+  if (enHits > deHits) return "en";
+  // nur ASCII? eher EN bevorzugen
+  if (/^[\x00-\x7F]+$/.test(s)) return "en";
+  return "de";
+}
+
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -292,11 +308,65 @@ export default function App() {
 
   const mapRef = useRef<MapApi>(null);
 
+  /* ========= Mehrsprachige Hyphenation: Inputs & Map-Nodes ========= */
+  // 1) Edit-Liste: lang auf Inputs setzen
+  const inputLangMap = useRef<Record<string, "de" | "en">>({});
+  useEffect(() => {
+    inputLangMap.current = {};
+  }, [tasks.length]);
+
+  // 2) MapView-Nodes (.skill-node) live beobachten und lang setzen
+  useEffect(() => {
+    const root = document.getElementById("root") || document.body;
+    if (!root) return;
+
+    const applyLangToNode = (el: Element) => {
+      if (!(el instanceof HTMLElement)) return;
+      const text = el.textContent || "";
+      const lang = detectLang(text);
+      if (el.getAttribute("lang") !== lang) el.setAttribute("lang", lang);
+    };
+
+    const scanExisting = () => {
+      const nodes = root.querySelectorAll(".skill-node");
+      nodes.forEach(applyLangToNode);
+    };
+
+    const mo = new MutationObserver((muts) => {
+      for (const m of muts) {
+        m.addedNodes.forEach(n => {
+          if (!(n instanceof HTMLElement)) return;
+          if (n.matches?.(".skill-node")) applyLangToNode(n);
+          n.querySelectorAll?.(".skill-node").forEach(applyLangToNode);
+        });
+        if (m.type === "characterData" && m.target?.parentElement?.closest(".skill-node")) {
+          applyLangToNode(m.target.parentElement.closest(".skill-node")!);
+        }
+        if (m.type === "childList") {
+          // Aktualisierte Inhalte in vorhandenen Knoten
+          (m.target as HTMLElement)?.querySelectorAll?.(".skill-node")?.forEach(applyLangToNode);
+        }
+      }
+    });
+
+    scanExisting();
+    mo.observe(root, { subtree: true, childList: true, characterData: true });
+
+    return () => mo.disconnect();
+  }, [tasks, view, projectTitle]);
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar-scroll">
-          <input className="project-input" value={projectTitle} onChange={e => setProjectTitle(e.target.value)} placeholder="Project title..." />
+          <input
+            className="project-input"
+            value={projectTitle}
+            onChange={e => setProjectTitle(e.target.value)}
+            placeholder="Project title..."
+            // globale Titel-Sprache setzen (wir überschreiben nichts Kritisches)
+            lang={detectLang(projectTitle)}
+          />
           <button className="btn" onClick={addTask}>Add Task</button>
           <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">Remove Task</button>
           <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
@@ -409,6 +479,8 @@ function Row({
     }
   };
 
+  const lang = detectLang(task.title);
+
   return (
     <>
       <div
@@ -426,7 +498,13 @@ function Row({
       >
         <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
         <span className="task-bullet" onPointerDown={handlePointerDownDragZone} />
-        <input className="task-input" value={task.title} onChange={e => renameTask(task.id, e.target.value)} placeholder="Task title…" />
+        <input
+          className="task-input"
+          value={task.title}
+          onChange={e => renameTask(task.id, e.target.value)}
+          placeholder="Task title…"
+          lang={lang}
+        />
         {task.parentId && <span className="task-parent-label">child</span>}
         <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
