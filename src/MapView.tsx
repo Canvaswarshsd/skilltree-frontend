@@ -98,12 +98,6 @@ const MAX_Z = 4;
 
 const CENTER_ID = "__CENTER__";
 
-/* Einheitliche Textbreiten:
-   - CENTER: größer
-   - ROOT & CHILD: gleich, damit identischer Umbruch */
-const MAXLEN_CENTER = 18;
-const MAXLEN_ROOT_AND_CHILD = 12;
-
 /* ---------- Geometrie-Helper ---------- */
 function segmentBetweenCircles(
   c1x: number,
@@ -126,7 +120,7 @@ function segmentBetweenCircles(
   return { x1, y1, x2, y2 };
 }
 
-/* ---------- Kleine Utils für Export ---------- */
+/* ---------- Kleine Utils ---------- */
 function slugifyTitle(t: string) {
   return t
     .trim()
@@ -138,13 +132,6 @@ function slugifyTitle(t: string) {
 function buildImageFileName(projectTitle: string, ext: "jpg" | "pdf") {
   const base = slugifyTitle(projectTitle) || "taskmap";
   return `${base}.${ext}`;
-}
-function esc(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -335,11 +322,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onPointerMoveMap = (e: React.PointerEvent) => {
     if (!active) return;
     const pt = activePointers.current.get(e.pointerId);
-    if (pt)
-      activePointers.current.set(e.pointerId, {
-        x: e.clientX,
-        y: e.clientY,
-      });
+    if (pt) activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (pinching.current && activePointers.current.size >= 2) {
       const [p1, p2] = Array.from(activePointers.current.values());
@@ -519,7 +502,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenu(e.clientX, e.clientY, id);
   };
 
-  /* ---------- Export (SVG → Canvas → JPG/PDF) ---------- */
+  /* ---------- Export-Layout (für BBox & Auto-Framing) ---------- */
   type NodeGeom = {
     id: string;
     title: string;
@@ -561,7 +544,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       y: 0,
       r: R_CENTER,
       color: centerColor,
-      fontSize: 20,
+      fontSize: 16, // an CSS angelehnt
     });
 
     const rootsList = tasks.filter((t) => t.parentId === null);
@@ -611,7 +594,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           y: cy,
           r: R_CHILD,
           color: nColor,
-          fontSize: 16,
+          fontSize: 12, // Child ~ .75rem
         });
 
         placeChildren(kid.id, cx, cy, R_CHILD, rootColor, px, py);
@@ -643,7 +626,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         y: ry,
         r: R_ROOT,
         color: rootColor,
-        fontSize: 18,
+        fontSize: 16, // Root ~ 1rem
       });
 
       placeChildren(root.id, rx, ry, R_ROOT, rootColor, 0, 0);
@@ -666,7 +649,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       maxY = Math.max(maxY, e.y1, e.y2);
     }
 
-    const PAD = 140;
+    const PAD = 120;
     minX -= PAD;
     minY -= PAD;
     maxX += PAD;
@@ -675,77 +658,28 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return { nodes, edges, bbox: { minX, minY, maxX, maxY } };
   }
 
-  function buildSVGForExport(): { svg: string; width: number; height: number } {
-    const { nodes, edges, bbox } = computeExportLayout();
-    const width = Math.ceil(bbox.maxX - bbox.minX);
-    const height = Math.ceil(bbox.maxY - bbox.minY);
+  /* ---------- html2canvas + jsPDF (Screenshot des echten Layouts) ---------- */
 
-    const parts: string[] = [];
-    parts.push(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bbox.minX} ${bbox.minY} ${width} ${height}">`,
-      `<defs><style>.lbl{font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight:700; fill:#fff; text-anchor:middle; dominant-baseline:middle;}</style></defs>`,
-      `<rect x="${bbox.minX}" y="${bbox.minY}" width="${width}" height="${height}" fill="#ffffff"/>`
-    );
+  async function loadHtml2Canvas(): Promise<
+    (el: HTMLElement, options?: any) => Promise<HTMLCanvasElement>
+  > {
+    const w = window as any;
+    if (w.html2canvas) return w.html2canvas;
 
-    for (const e of edges) {
-      parts.push(
-        `<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${e.color}" stroke-width="6" stroke-linecap="round"/>`
-      );
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src =
+        "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load html2canvas"));
+      document.head.appendChild(s);
+    });
+
+    if (!w.html2canvas) {
+      throw new Error("html2canvas not available");
     }
-
-    for (const n of nodes) {
-      parts.push(
-        `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" />`
-      );
-      const maxLen =
-        n.id === "CENTER" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
-      const fs = n.fontSize;
-      const lines = splitTitleLines(n.title, maxLen, 3);
-      const total = lines.length;
-      lines.forEach((ln, idx) => {
-        const dy = (idx - (total - 1) / 2) * (fs * 1.1);
-        parts.push(
-          `<text class="lbl" x="${n.x}" y="${
-            n.y + dy
-          }" font-size="${fs}">${esc(ln)}</text>`
-        );
-      });
-    }
-
-    parts.push(`</svg>`);
-    return { svg: parts.join(""), width, height };
-  }
-
-  async function svgToCanvas(
-    svg: string,
-    width: number,
-    height: number,
-    scaleMul = 2
-  ): Promise<HTMLCanvasElement> {
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = new Image();
-      img.decoding = "sync";
-      const loaded = new Promise<void>((res, rej) => {
-        img.onload = () => res();
-        img.onerror = () => rej(new Error("SVG image load failed"));
-      });
-      img.src = url;
-      await loaded;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width * scaleMul));
-      canvas.height = Math.max(1, Math.round(height * scaleMul));
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return canvas;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    return w.html2canvas;
   }
 
   async function loadJsPDF() {
@@ -761,9 +695,64 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return (window as any).jspdf.jsPDF;
   }
 
+  /**
+   * Framed die komplette Map sinnvoll ins Sichtfenster,
+   * macht einen Screenshot dieser echten Ansicht (inkl. CSS),
+   * und stellt danach pan/scale wieder her.
+   */
+  async function captureMapAsCanvas(): Promise<HTMLCanvasElement | null> {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return null;
+
+    const { bbox } = computeExportLayout();
+    const widthWorld = bbox.maxX - bbox.minX;
+    const heightWorld = bbox.maxY - bbox.minY;
+    if (widthWorld <= 0 || heightWorld <= 0) return null;
+
+    const rect = wrapper.getBoundingClientRect();
+    const viewW = rect.width || 1;
+    const viewH = rect.height || 1;
+
+    // Auto-Scale: ganze Map sichtbar, kleiner Padding-Faktor
+    const scaleFit =
+      Math.min(viewW / widthWorld, viewH / heightWorld) * 0.9;
+    const nextScale = Math.min(MAX_Z, Math.max(MIN_Z, scaleFit));
+
+    const cxWorld = (bbox.minX + bbox.maxX) / 2;
+    const cyWorld = (bbox.minY + bbox.maxY) / 2;
+
+    const newPanX = viewW / 2 - cxWorld * nextScale;
+    const newPanY = viewH / 2 - cyWorld * nextScale;
+
+    const prevPan = { ...pan };
+    const prevScale = scale;
+
+    setScale(nextScale);
+    setPan({ x: newPanX, y: newPanY });
+
+    // Zwei Frames warten, damit React + Layout fertig sind
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => resolve())
+      )
+    );
+
+    const html2canvas = await loadHtml2Canvas();
+    const exportCanvas = await html2canvas(wrapper, {
+      backgroundColor: "#ffffff",
+      scale: window.devicePixelRatio > 1 ? 2 : 1,
+    });
+
+    // Ursprüngliche Ansicht wiederherstellen
+    setScale(prevScale);
+    setPan(prevPan);
+
+    return exportCanvas;
+  }
+
   async function doDownloadJPG() {
-    const { svg, width, height } = buildSVGForExport();
-    const canvas = await svgToCanvas(svg, width, height, 2);
+    const canvas = await captureMapAsCanvas();
+    if (!canvas) return;
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
     const a = document.createElement("a");
     a.href = dataUrl;
@@ -774,9 +763,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }
 
   async function doDownloadPDF() {
-    const { svg, width, height } = buildSVGForExport();
-    const canvas = await svgToCanvas(svg, width, height, 2);
+    const canvas = await captureMapAsCanvas();
+    if (!canvas) return;
+
     const imgData = canvas.toDataURL("image/jpeg", 0.95);
+    const width = canvas.width;
+    const height = canvas.height;
 
     const jsPDF = await loadJsPDF();
     const pdf = new jsPDF({
@@ -927,12 +919,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             document.documentElement.lang || navigator.language || "en"
           }
         >
-          {renderTitleAsSpans(kid.title, MAXLEN_ROOT_AND_CHILD)}
+          {renderTitleAsSpans(kid.title, 12)}
         </div>
       );
 
       nodes.push(
-        ...renderChildNodesWithOffsets(kid.id, cx, cy, rootColor, px, py)
+        ...renderChildNodesWithOffsets(
+          kid.id,
+          cx,
+          cy,
+          rootColor,
+          px,
+          py
+        )
       );
     });
 
@@ -1028,10 +1027,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               document.documentElement.lang || navigator.language || "en"
             }
           >
-            {renderTitleAsSpans(
-              projectTitle || "Project",
-              MAXLEN_CENTER
-            )}
+            {renderTitleAsSpans(projectTitle || "Project", 18)}
           </div>
 
           {/* Roots + Children */}
@@ -1063,10 +1059,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     "en"
                   }
                 >
-                  {renderTitleAsSpans(
-                    root.title,
-                    MAXLEN_ROOT_AND_CHILD
-                  )}
+                  {renderTitleAsSpans(root.title, 14)}
                 </div>
                 {renderChildNodesWithOffsets(
                   root.id,
