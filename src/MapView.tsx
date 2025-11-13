@@ -98,6 +98,13 @@ const MAX_Z = 4;
 
 const CENTER_ID = "__CENTER__";
 
+/** Maximale Zeichen pro Zeile je Node-Typ.
+ *  Root = Referenz: „Wettbewerbs-“ passt exakt in eine Zeile.
+ */
+const MAXLEN_CENTER = 18;
+const MAXLEN_ROOT = 12;
+const MAXLEN_CHILD = 10;
+
 /* ---------- Geometrie-Helper ---------- */
 function segmentBetweenCircles(
   c1x: number,
@@ -149,7 +156,11 @@ function esc(s: string) {
  * - wenn innerhalb des Fensters kein Leerzeichen gefunden wird, hyphenieren wir (sichtbarer '-')
  * - mehrere Spaces werden berücksichtigt (zählen in die Länge); vorhandene \n werden respektiert
  */
-function splitTitleLines(t: string, maxLen: number, maxLines: number = 3): string[] {
+function splitTitleLines(
+  t: string,
+  maxLen: number,
+  maxLines: number = 3
+): string[] {
   const s = String(t ?? "").trim();
   if (!s) return ["Project"];
 
@@ -174,6 +185,7 @@ function splitTitleLines(t: string, maxLen: number, maxLines: number = 3): strin
         part = part.slice(breakAt + 1);
       } else {
         // kein Leerzeichen im Fenster: harte Trennung mit sichtbarem Bindestrich
+        // Root-Referenz: bei maxLen=12 → sliceLen=11 → "Wettbewerbs-"
         const sliceLen = Math.max(1, maxLen - 1); // Platz für '-'
         const line = part.slice(0, sliceLen) + "-";
         lines.push(line);
@@ -495,7 +507,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
       setBranchColorOverride((prev) => ({ ...prev, [t.id]: hex }));
     } else {
       // Child: nur dieser Node
-      setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x)));
+      setTasks((prev) =>
+        prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x))
+      );
     }
     closeColorMenu();
   };
@@ -516,7 +530,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
     color: string;
     fontSize: number;
   };
-  type EdgeGeom = { x1: number; y1: number; x2: number; y2: number; color: string };
+  type EdgeGeom = {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    color: string;
+  };
 
   const getChildren = (id: string) => tasks.filter((t) => t.parentId === id);
 
@@ -678,7 +698,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
       parts.push(
         `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" />`
       );
-      const maxLen = n.id === "CENTER" ? 18 : n.r === R_ROOT ? 14 : 12;
+      const maxLen =
+        n.id === "CENTER"
+          ? MAXLEN_CENTER
+          : n.r === R_ROOT
+          ? MAXLEN_ROOT
+          : MAXLEN_CHILD;
       const fs = n.fontSize;
       const lines = splitTitleLines(n.title, maxLen, 3);
       const total = lines.length;
@@ -836,7 +861,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
   function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
     const lines = splitTitleLines(title, maxLen, 3);
     return lines.map((ln, i) => (
-      <span key={i} style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}>
+      <span
+        key={i}
+        style={{
+          display: "block",
+          whiteSpace: "nowrap",
+          lineHeight: 1.1,
+        }}
+      >
         {ln}
       </span>
     ));
@@ -887,7 +919,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={document.documentElement.lang || navigator.language || "en"}
         >
-          {renderTitleAsSpans(kid.title, 12)}
+          {renderTitleAsSpans(kid.title, MAXLEN_CHILD)}
         </div>
       );
 
@@ -986,7 +1018,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
             }}
             lang={document.documentElement.lang || navigator.language || "en"}
           >
-            {renderTitleAsSpans(projectTitle || "Project", 18)}
+            {renderTitleAsSpans(projectTitle || "Project", MAXLEN_CENTER)}
           </div>
 
           {/* Roots + Children */}
@@ -1012,9 +1044,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
                   }}
                   onPointerDown={(e) => startNodeDrag(root.id, e)}
                   onContextMenu={(e) => onNodeContextMenu(e, root.id)}
-                  lang={document.documentElement.lang || navigator.language || "en"}
+                  lang={
+                    document.documentElement.lang ||
+                    navigator.language ||
+                    "en"
+                  }
                 >
-                  {renderTitleAsSpans(root.title, 14)}
+                  {renderTitleAsSpans(root.title, MAXLEN_ROOT)}
                 </div>
                 {renderChildNodesWithOffsets(root.id, rx, ry, rootColor, 0, 0)}
               </React.Fragment>

@@ -210,34 +210,30 @@ html, body { overflow: hidden; }
 .map-origin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 0; height: 0; }
 .map-svg { position: absolute; width: 4000px; height: 4000px; left: -2000px; top: -2000px; overflow: visible; z-index: 1; }
 
-/* =========  Nodes: präzise Silbentrennung  ========= */
+/* =========  Nodes ========= */
 .skill-node {
   width: 120px; height: 120px; border-radius: 9999px;
-  display: flex; align-items: center; justify-content: center;
+  /* wichtig: Spans als echte Zeilen untereinander */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
   text-align: center; font-weight: 700; color: #fff;
   position: absolute; z-index: 2; box-shadow: 0 12px 36px rgba(0,0,0,.35);
   left: 0; top: 0;
   padding: 0 12px;
   line-height: 1.15;
 
-  /* Zeilenumbruch-Policy:
-     - keine willkürlichen Trennungen
-     - nur Silbentrennung, wenn nötig
-  */
+  /* Browser darf NICHT selbst Silben trennen –
+     Zeilenlogik kommt komplett aus dem JS */
   white-space: normal;
-  word-break: normal;            /* nie mitten im Wort */
-  overflow-wrap: normal;         /* kein erzwungener Bruch ohne Bindestrich */
+  word-break: normal;
+  overflow-wrap: normal;
 
-  hyphens: auto;                 /* Wörterbuch-Trennung */
-  -webkit-hyphens: auto;         /* Safari */
-  -ms-hyphens: auto;
-
-  /* optionaler Feinschliff */
-  text-wrap: pretty;
-  text-wrap: balance;
-
-  /* Falls vom Browser unterstützt */
-  hyphenate-character: "-";
+  hyphens: none;
+  -webkit-hyphens: none;
+  -ms-hyphens: none;
 }
 
 .center-node { 
