@@ -98,12 +98,11 @@ const MAX_Z = 4;
 
 const CENTER_ID = "__CENTER__";
 
-/** Maximale Zeichen pro Zeile je Node-Typ.
- *  Root = Referenz: „Wettbewerbs-“ passt exakt in eine Zeile.
- */
+/* Einheitliche Textbreiten:
+   - CENTER: größer
+   - ROOT & CHILD: gleich, damit identischer Umbruch */
 const MAXLEN_CENTER = 18;
-const MAXLEN_ROOT = 12;
-const MAXLEN_CHILD = 10;
+const MAXLEN_ROOT_AND_CHILD = 12;
 
 /* ---------- Geometrie-Helper ---------- */
 function segmentBetweenCircles(
@@ -185,7 +184,6 @@ function splitTitleLines(
         part = part.slice(breakAt + 1);
       } else {
         // kein Leerzeichen im Fenster: harte Trennung mit sichtbarem Bindestrich
-        // Root-Referenz: bei maxLen=12 → sliceLen=11 → "Wettbewerbs-"
         const sliceLen = Math.max(1, maxLen - 1); // Platz für '-'
         const line = part.slice(0, sliceLen) + "-";
         lines.push(line);
@@ -199,10 +197,7 @@ function splitTitleLines(
 }
 
 /* ---------- MapView ---------- */
-const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
-  props,
-  ref
-) {
+const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const {
     projectTitle,
     tasks,
@@ -340,7 +335,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
   const onPointerMoveMap = (e: React.PointerEvent) => {
     if (!active) return;
     const pt = activePointers.current.get(e.pointerId);
-    if (pt) activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pt)
+      activePointers.current.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+      });
 
     if (pinching.current && activePointers.current.size >= 2) {
       const [p1, p2] = Array.from(activePointers.current.values());
@@ -699,20 +698,16 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
         `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" />`
       );
       const maxLen =
-        n.id === "CENTER"
-          ? MAXLEN_CENTER
-          : n.r === R_ROOT
-          ? MAXLEN_ROOT
-          : MAXLEN_CHILD;
+        n.id === "CENTER" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
       const fs = n.fontSize;
       const lines = splitTitleLines(n.title, maxLen, 3);
       const total = lines.length;
       lines.forEach((ln, idx) => {
         const dy = (idx - (total - 1) / 2) * (fs * 1.1);
         parts.push(
-          `<text class="lbl" x="${n.x}" y="${n.y + dy}" font-size="${fs}">${esc(
-            ln
-          )}</text>`
+          `<text class="lbl" x="${n.x}" y="${
+            n.y + dy
+          }" font-size="${fs}">${esc(ln)}</text>`
         );
       });
     }
@@ -836,7 +831,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
       const cx = cxBase + ko.x;
       const cy = cyBase + ko.y;
 
-      const { x1, y1, x2, y2 } = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
+      const { x1, y1, x2, y2 } = segmentBetweenCircles(
+        px,
+        py,
+        pr,
+        cx,
+        cy,
+        R_CHILD
+      );
       lines.push(
         <line
           key={`line-${parentId}-${kid.id}`}
@@ -851,7 +853,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, rootColor, px, py)
+        ...renderChildLinesWithOffsets(
+          kid.id,
+          cx,
+          cy,
+          R_CHILD,
+          rootColor,
+          px,
+          py
+        )
       );
     });
 
@@ -863,11 +873,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
     return lines.map((ln, i) => (
       <span
         key={i}
-        style={{
-          display: "block",
-          whiteSpace: "nowrap",
-          lineHeight: 1.1,
-        }}
+        style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}
       >
         {ln}
       </span>
@@ -917,9 +923,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
           }}
           onPointerDown={(e) => startNodeDrag(kid.id, e)}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
-          lang={document.documentElement.lang || navigator.language || "en"}
+          lang={
+            document.documentElement.lang || navigator.language || "en"
+          }
         >
-          {renderTitleAsSpans(kid.title, MAXLEN_CHILD)}
+          {renderTitleAsSpans(kid.title, MAXLEN_ROOT_AND_CHILD)}
         </div>
       );
 
@@ -1016,9 +1024,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
               e.stopPropagation();
               openColorMenu(e.clientX, e.clientY, CENTER_ID);
             }}
-            lang={document.documentElement.lang || navigator.language || "en"}
+            lang={
+              document.documentElement.lang || navigator.language || "en"
+            }
           >
-            {renderTitleAsSpans(projectTitle || "Project", MAXLEN_CENTER)}
+            {renderTitleAsSpans(
+              projectTitle || "Project",
+              MAXLEN_CENTER
+            )}
           </div>
 
           {/* Roots + Children */}
@@ -1050,9 +1063,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
                     "en"
                   }
                 >
-                  {renderTitleAsSpans(root.title, MAXLEN_ROOT)}
+                  {renderTitleAsSpans(
+                    root.title,
+                    MAXLEN_ROOT_AND_CHILD
+                  )}
                 </div>
-                {renderChildNodesWithOffsets(root.id, rx, ry, rootColor, 0, 0)}
+                {renderChildNodesWithOffsets(
+                  root.id,
+                  rx,
+                  ry,
+                  rootColor,
+                  0,
+                  0
+                )}
               </React.Fragment>
             );
           })}
