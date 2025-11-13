@@ -140,23 +140,50 @@ function esc(s: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
-function splitTitleLines(t: string, maxLen: number): string[] {
-  const s = (t || "").trim();
+
+/**
+ * Einheitliche Zeilenaufteilung:
+ * - maxLen: maximale Zeichen pro Zeile
+ * - maxLines: maximale Zeilenanzahl (Default 3)
+ * - normales Wort-Wrapping: bricht an Leerzeichen
+ * - wenn innerhalb des Fensters kein Leerzeichen gefunden wird, hyphenieren wir (sichtbarer '-')
+ * - mehrere Spaces werden berücksichtigt (zählen in die Länge); vorhandene \n werden respektiert
+ */
+function splitTitleLines(t: string, maxLen: number, maxLines: number = 3): string[] {
+  const s = String(t ?? "").trim();
   if (!s) return ["Project"];
-  if (s.length <= maxLen) return [s];
-  const words = s.split(/\s+/);
+
+  const hardParts = s.split(/\r?\n/); // respektiere manuelle Zeilenumbrüche
   const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    if ((cur + " " + w).trim().length > maxLen) {
-      if (cur) lines.push(cur);
-      cur = w;
-    } else {
-      cur = (cur ? cur + " " : "") + w;
+
+  for (let part of hardParts) {
+    // Wrap solange Inhalt vorhanden ist
+    while (part.length > 0 && lines.length < maxLines) {
+      if (part.length <= maxLen) {
+        lines.push(part);
+        part = "";
+        break;
+      }
+      // suche letztes Leerzeichen im Fenster [0..maxLen]
+      let breakAt = part.lastIndexOf(" ", maxLen);
+      if (breakAt > 0) {
+        // normaler Wortumbruch an Leerzeichen
+        const line = part.slice(0, breakAt);
+        lines.push(line);
+        // entferne genau ein Leerzeichen
+        part = part.slice(breakAt + 1);
+      } else {
+        // kein Leerzeichen im Fenster: harte Trennung mit sichtbarem Bindestrich
+        const sliceLen = Math.max(1, maxLen - 1); // Platz für '-'
+        const line = part.slice(0, sliceLen) + "-";
+        lines.push(line);
+        part = part.slice(sliceLen);
+      }
     }
+    if (lines.length >= maxLines) break;
   }
-  if (cur) lines.push(cur);
-  return lines.slice(0, 3);
+
+  return lines.slice(0, maxLines);
 }
 
 /* ---------- MapView ---------- */
@@ -653,7 +680,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
       );
       const maxLen = n.id === "CENTER" ? 18 : n.r === R_ROOT ? 14 : 12;
       const fs = n.fontSize;
-      const lines = splitTitleLines(n.title, maxLen);
+      const lines = splitTitleLines(n.title, maxLen, 3);
       const total = lines.length;
       lines.forEach((ln, idx) => {
         const dy = (idx - (total - 1) / 2) * (fs * 1.1);
@@ -806,6 +833,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
     return lines;
   }
 
+  function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
+    const lines = splitTitleLines(title, maxLen, 3);
+    return lines.map((ln, i) => (
+      <span key={i} style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}>
+        {ln}
+      </span>
+    ));
+  }
+
   function renderChildNodesWithOffsets(
     parentId: string,
     px: number,
@@ -851,7 +887,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={document.documentElement.lang || navigator.language || "en"}
         >
-          {kid.title}
+          {renderTitleAsSpans(kid.title, 12)}
         </div>
       );
 
@@ -950,7 +986,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
             }}
             lang={document.documentElement.lang || navigator.language || "en"}
           >
-            {projectTitle || "Project"}
+            {renderTitleAsSpans(projectTitle || "Project", 18)}
           </div>
 
           {/* Roots + Children */}
@@ -978,7 +1014,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(
                   onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                   lang={document.documentElement.lang || navigator.language || "en"}
                 >
-                  {root.title}
+                  {renderTitleAsSpans(root.title, 14)}
                 </div>
                 {renderChildNodesWithOffsets(root.id, rx, ry, rootColor, 0, 0)}
               </React.Fragment>
