@@ -20,20 +20,12 @@ type SavedState = {
 const makeId = () => Math.random().toString(36).slice(2, 9);
 
 const slugifyTitle = (t: string) =>
-  t
-    .trim()
-    .replace(/[^\w\-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-_]+|[-_]+$/g, "")
-    .toLowerCase();
+  t.trim().replace(/[^\w\-]+/g, "-").replace(/-+/g, "-").replace(/^[-_]+|[-_]+$/g, "").toLowerCase();
 
-const buildFileName = (projectTitle: string) =>
-  `${slugifyTitle(projectTitle) || "taskmap"}.taskmap.json`;
+const buildFileName = (projectTitle: string) => `${slugifyTitle(projectTitle) || "taskmap"}.taskmap.json`;
 
 function downloadJSON(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -64,31 +56,14 @@ const serializeState = (
   centerColor,
 });
 
-function isDescendant(
-  tasks: Task[],
-  possibleDescendant: string,
-  possibleAncestor: string
-) {
-  let cur = tasks.find((t) => t.id === possibleDescendant);
+function isDescendant(tasks: Task[], possibleDescendant: string, possibleAncestor: string) {
+  let cur = tasks.find(t => t.id === possibleDescendant);
   while (cur && cur.parentId) {
     if (cur.parentId === possibleAncestor) return true;
-    cur = tasks.find((t) => t.id === cur!.parentId);
+    cur = tasks.find(t => t.id === cur!.parentId);
   }
   return false;
 }
-
-/* ========= Neue, matte Blau-Palette für die Edit-Punkte nach Tiefe ========= */
-const DEPTH_COLORS = [
-  "#38bdf8", // depth 0 – helles, klares Blau
-  "#0ea5e9", // depth 1 – etwas satter
-  "#0369a1", // depth 2 – dunkler, matter
-  "#1d4ed8", // depth 3 – tiefes Blau
-  "#1e293b", // depth 4+ – sehr ruhiges Blau-Grau
-];
-
-const colorForDepth = (depth: number) =>
-  DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
-/* ========================================================================== */
 
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
@@ -98,34 +73,21 @@ export default function App() {
   // Map-States (controlled)
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
-  const [nodeOffset, setNodeOffset] = useState<
-    Record<string, { x: number; y: number }>
-  >({});
-  const [branchColorOverride, setBranchColorOverride] = useState<
-    Record<string, string>
-  >({});
+  const [nodeOffset, setNodeOffset] = useState<Record<string, { x: number; y: number }>>({});
+  const [branchColorOverride, setBranchColorOverride] = useState<Record<string, string>>({});
   const [centerColor, setCenterColor] = useState<string>("#020617");
 
-  const roots = useMemo(() => tasks.filter((t) => t.parentId === null), [tasks]);
+  const roots = useMemo(() => tasks.filter(t => t.parentId === null), [tasks]);
 
   // Edit: Add/Rename/Remove
-  const addTask = () =>
-    setTasks((prev) => [
-      ...prev,
-      { id: "t-" + makeId(), title: `Task ${prev.length + 1}`, parentId: null },
-    ]);
-  const renameTask = (id: string, title: string) =>
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
+  const addTask = () => setTasks(prev => [...prev, { id: "t-" + makeId(), title: `Task ${prev.length + 1}`, parentId: null }]);
+  const renameTask = (id: string, title: string) => setTasks(prev => prev.map(t => (t.id === id ? { ...t, title } : t)));
   const collectSubtreeIds = (list: Task[], rootId: string) => {
     const out = new Set<string>([rootId]);
     const q = [rootId];
     while (q.length) {
       const cur = q.shift()!;
-      for (const t of list)
-        if (t.parentId === cur && !out.has(t.id)) {
-          out.add(t.id);
-          q.push(t.id);
-        }
+      for (const t of list) if (t.parentId === cur && !out.has(t.id)) { out.add(t.id); q.push(t.id); }
     }
     return out;
   };
@@ -133,7 +95,7 @@ export default function App() {
     if (!tasks.length) return;
     const lastTask = tasks[tasks.length - 1];
     const toRemove = collectSubtreeIds(tasks, lastTask.id);
-    setTasks((prev) => prev.filter((t) => !toRemove.has(t.id)));
+    setTasks(prev => prev.filter(t => !toRemove.has(t.id)));
   };
 
   // Edit: DnD in Liste (gleiches Verhalten wie vorher)
@@ -166,41 +128,24 @@ export default function App() {
   function dropOn(targetId: string) {
     const src = draggingRef.current;
     if (!src || src === targetId) return finishDrag();
-    setTasks((prev) =>
-      isDescendant(prev, targetId, src)
-        ? prev
-        : prev.map((t) =>
-            t.id === src ? { ...t, parentId: targetId } : t
-          )
-    );
+    setTasks(prev => (isDescendant(prev, targetId, src) ? prev : prev.map(t => (t.id === src ? { ...t, parentId: targetId } : t))));
     finishDrag();
   }
   function dropToRoot() {
     const src = draggingRef.current;
     if (!src) return finishDrag();
-    setTasks((prev) =>
-      prev.map((t) => (t.id === src ? { ...t, parentId: null } : t))
-    );
+    setTasks(prev => prev.map(t => (t.id === src ? { ...t, parentId: null } : t)));
     finishDrag();
   }
 
   useEffect(() => {
     const onPointerUp = (e: PointerEvent) => {
-      if (
-        editGesture.current &&
-        e.pointerId === editGesture.current.pointerId &&
-        !editGesture.current.started
-      )
-        editGesture.current = null;
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) editGesture.current = null;
       if (!draggingRef.current) return;
       hoverId ? dropOn(hoverId) : dropToRoot();
     };
     const onPointerCancel = (e: PointerEvent) => {
-      if (
-        editGesture.current &&
-        e.pointerId === editGesture.current.pointerId
-      )
-        editGesture.current = null;
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId) editGesture.current = null;
       if (draggingRef.current) finishDrag();
     };
     window.addEventListener("pointerup", onPointerUp);
@@ -214,80 +159,48 @@ export default function App() {
   useEffect(() => {
     const onDocPointerMoveEdit = (e: PointerEvent) => {
       if (view !== "edit") return;
-      if (
-        editGesture.current &&
-        e.pointerId === editGesture.current.pointerId &&
-        !editGesture.current.started
-      ) {
-        const dx = e.clientX - editGesture.current.startX,
-          dy = e.clientY - editGesture.current.startY;
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
+        const dx = e.clientX - editGesture.current.startX, dy = e.clientY - editGesture.current.startY;
         if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-          editGesture.current.rowEl.setPointerCapture?.(
-            editGesture.current.pointerId
-          );
+          editGesture.current.rowEl.setPointerCapture?.(editGesture.current.pointerId);
           e.preventDefault();
           startDrag(editGesture.current.taskId);
           editGesture.current.started = true;
         }
       }
       if (!draggingRef.current) return;
-      const el = document.elementFromPoint(
-        e.clientX,
-        e.clientY
-      ) as HTMLElement | null;
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
       const row = el?.closest?.(".task-row") as HTMLElement | null;
       setHoverId(row?.dataset?.taskId || null);
     };
-    window.addEventListener("pointermove", onDocPointerMoveEdit, {
-      passive: true,
-    });
-    return () =>
-      window.removeEventListener("pointermove", onDocPointerMoveEdit);
+    window.addEventListener("pointermove", onDocPointerMoveEdit, { passive: true });
+    return () => window.removeEventListener("pointermove", onDocPointerMoveEdit);
   }, [view]);
 
-  const openMap = () => {
-    if (!projectTitle.trim()) setProjectTitle("Project");
-    setView("map");
-  };
+  const openMap = () => { if (!projectTitle.trim()) setProjectTitle("Project"); setView("map"); };
 
   // Save / Open
   const [saveOpen, setSaveOpen] = useState(false);
   const saveBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [savePos, setSavePos] = useState<{ top: number; left: number } | null>(
-    null
-  );
+  const [savePos, setSavePos] = useState<{ top: number; left: number } | null>(null);
 
   const openSaveMenu = () => {
     const r = saveBtnRef.current?.getBoundingClientRect();
-    if (!r) return setSaveOpen((v) => !v);
+    if (!r) return setSaveOpen(v => !v);
     setSavePos({ top: r.bottom + 6, left: r.right });
     setSaveOpen(true);
   };
-  const toggleSaveMenu = () =>
-    setSaveOpen((prev) => (prev ? false : (openSaveMenu(), true)));
+  const toggleSaveMenu = () => setSaveOpen(prev => (prev ? false : (openSaveMenu(), true)));
 
-  const [fileHandle, setFileHandle] =
-    useState<FileSystemFileHandle | null>(null);
+  const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
 
   const doSave = async () => {
     setSaveOpen(false);
-    const state = serializeState(
-      projectTitle,
-      tasks,
-      nodeOffset,
-      pan,
-      scale,
-      branchColorOverride,
-      centerColor
-    );
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride, centerColor);
     try {
       if (fileHandle && "createWritable" in fileHandle) {
         const writable = await (fileHandle as any).createWritable();
-        await writable.write(
-          new Blob([JSON.stringify(state, null, 2)], {
-            type: "application/json",
-          })
-        );
+        await writable.write(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
         await writable.close();
         return;
       }
@@ -297,35 +210,18 @@ export default function App() {
 
   const doSaveAs = async () => {
     setSaveOpen(false);
-    const state = serializeState(
-      projectTitle,
-      tasks,
-      nodeOffset,
-      pan,
-      scale,
-      branchColorOverride,
-      centerColor
-    );
+    const state = serializeState(projectTitle, tasks, nodeOffset, pan, scale, branchColorOverride, centerColor);
     try {
       if ("showSaveFilePicker" in window) {
         const handle = await (window as any).showSaveFilePicker({
           id: "taskmap-saveas",
           suggestedName: buildFileName(projectTitle),
           startIn: "downloads",
-          types: [
-            {
-              description: "TaskMap Project",
-              accept: { "application/json": [".taskmap.json"] },
-            },
-          ],
+          types: [{ description: "TaskMap Project", accept: { "application/json": [".taskmap.json"] } }],
         });
         setFileHandle(handle);
         const w = await handle.createWritable();
-        await w.write(
-          new Blob([JSON.stringify(state, null, 2)], {
-            type: "application/json",
-          })
-        );
+        await w.write(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
         await w.close();
         return;
       }
@@ -359,14 +255,7 @@ export default function App() {
           id: "taskmap-open",
           startIn: "downloads",
           multiple: false,
-          types: [
-            {
-              description: "TaskMap Project",
-              accept: {
-                "application/json": [".taskmap.json", ".json"],
-              },
-            },
-          ],
+          types: [{ description: "TaskMap Project", accept: { "application/json": [".taskmap.json", ".json"] } }],
           excludeAcceptAllOption: true,
         });
         const file = await handle.getFile();
@@ -381,16 +270,9 @@ export default function App() {
     input.type = "file";
     input.accept = ".taskmap.json,application/json";
     input.onchange = (ev: any) => {
-      const f = ev.target.files?.[0];
-      if (!f) return;
+      const f = ev.target.files?.[0]; if (!f) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          loadFromJSON(JSON.parse(String(reader.result)));
-        } catch {
-          alert("Could not open file.");
-        }
-      };
+      reader.onload = () => { try { loadFromJSON(JSON.parse(String(reader.result))); } catch { alert("Could not open file."); } };
       reader.readAsText(f);
     };
     input.click();
@@ -399,16 +281,14 @@ export default function App() {
   // Download dropdown -> MapView API
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [downloadPos, setDownloadPos] =
-    useState<{ top: number; left: number } | null>(null);
+  const [downloadPos, setDownloadPos] = useState<{ top: number; left: number } | null>(null);
   const openDownloadMenu = () => {
     const r = downloadBtnRef.current?.getBoundingClientRect();
-    if (!r) return setDownloadOpen((v) => !v);
+    if (!r) return setDownloadOpen(v => !v);
     setDownloadPos({ top: r.bottom + 6, left: r.right });
     setDownloadOpen(true);
   };
-  const toggleDownloadMenu = () =>
-    setDownloadOpen((prev) => (prev ? false : (openDownloadMenu(), true)));
+  const toggleDownloadMenu = () => setDownloadOpen(prev => (prev ? false : (openDownloadMenu(), true)));
 
   const mapRef = useRef<MapApi>(null);
 
@@ -416,99 +296,30 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-scroll">
-          <input
-            className="project-input"
-            value={projectTitle}
-            onChange={(e) => setProjectTitle(e.target.value)}
-            placeholder="Project title..."
-          />
-          <button className="btn" onClick={addTask}>
-            Add Task
-          </button>
-          <button
-            className="btn btn-remove"
-            onClick={removeLastTask}
-            title="Remove last task (and its children)"
-          >
-            Remove Task
-          </button>
-          <button
-            className={view === "map" ? "view-btn active" : "view-btn"}
-            onClick={openMap}
-          >
-            Visualize
-          </button>
+          <input className="project-input" value={projectTitle} onChange={e => setProjectTitle(e.target.value)} placeholder="Project title..." />
+          <button className="btn" onClick={addTask}>Add Task</button>
+          <button className="btn btn-remove" onClick={removeLastTask} title="Remove last task (and its children)">Remove Task</button>
+          <button className={view === "map" ? "view-btn active" : "view-btn"} onClick={openMap}>Visualize</button>
 
           <div className="save-wrap">
-            <button
-              ref={saveBtnRef}
-              className="btn btn-save"
-              onClick={toggleSaveMenu}
-            >
-              Save
-            </button>
+            <button ref={saveBtnRef} className="btn btn-save" onClick={toggleSaveMenu}>Save</button>
             {saveOpen && savePos && (
-              <div
-                className="save-menu"
-                role="menu"
-                style={{
-                  top: savePos.top,
-                  left: savePos.left,
-                  transform: "translateX(-100%)",
-                }}
-                onMouseLeave={() => setSaveOpen(false)}
-              >
-                <button className="save-item" onClick={doSave}>
-                  Save
-                </button>
-                <button className="save-item" onClick={doSaveAs}>
-                  Save As…
-                </button>
+              <div className="save-menu" role="menu" style={{ top: savePos.top, left: savePos.left, transform: "translateX(-100%)" }} onMouseLeave={() => setSaveOpen(false)}>
+                <button className="save-item" onClick={doSave}>Save</button>
+                <button className="save-item" onClick={doSaveAs}>Save As…</button>
               </div>
             )}
           </div>
 
-          <button
-            className={view === "edit" ? "view-btn active" : "view-btn"}
-            onClick={() => setView("edit")}
-          >
-            Edit
-          </button>
-          <button className="view-btn" onClick={doOpen}>
-            Open
-          </button>
+          <button className={view === "edit" ? "view-btn active" : "view-btn"} onClick={() => setView("edit")}>Edit</button>
+          <button className="view-btn" onClick={doOpen}>Open</button>
 
           <div className="save-wrap">
-            <button
-              ref={downloadBtnRef}
-              className="view-btn"
-              onClick={toggleDownloadMenu}
-            >
-              Download
-            </button>
+            <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>Download</button>
             {downloadOpen && downloadPos && (
-              <div
-                className="save-menu"
-                role="menu"
-                style={{
-                  top: downloadPos.top,
-                  left: downloadPos.left,
-                  transform: "translateX(-100%)",
-                }}
-                onMouseLeave={() => setDownloadOpen(false)}
-              >
-                <button
-                  className="save-item"
-                  onClick={() => mapRef.current?.exportPDF()}
-                >
-                  PDF
-                </button>
-                <button
-                  className="save-item"
-                  onClick={() => mapRef.current?.exportJPG()}
-                >
-                  JPG
-                </button>
+              <div className="save-menu" role="menu" style={{ top: downloadPos.top, left: downloadPos.left, transform: "translateX(-100%)" }} onMouseLeave={() => setDownloadOpen(false)}>
+                <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>PDF</button>
+                <button className="save-item" onClick={() => mapRef.current?.exportJPG()}>JPG</button>
               </div>
             )}
           </div>
@@ -516,20 +327,14 @@ export default function App() {
       </header>
 
       {view === "map" && (
-        <button
-          className="center-btn"
-          onClick={() => mapRef.current?.resetView()}
-          aria-label="Center"
-        >
-          Center
-        </button>
+        <button className="center-btn" onClick={() => mapRef.current?.resetView()} aria-label="Center">Center</button>
       )}
 
       <div className="body">
         {view === "edit" ? (
           <div className="task-list">
             <h2 className="section-title" />
-            {roots.map((r) => (
+            {roots.map(r => (
               <Row
                 key={r.id}
                 task={r}
@@ -552,16 +357,11 @@ export default function App() {
             projectTitle={projectTitle}
             tasks={tasks}
             setTasks={setTasks}
-            nodeOffset={nodeOffset}
-            setNodeOffset={setNodeOffset}
-            pan={pan}
-            setPan={setPan}
-            scale={scale}
-            setScale={setScale}
-            branchColorOverride={branchColorOverride}
-            setBranchColorOverride={setBranchColorOverride}
-            centerColor={centerColor}
-            setCenterColor={setCenterColor}
+            nodeOffset={nodeOffset} setNodeOffset={setNodeOffset}
+            pan={pan} setPan={setPan}
+            scale={scale} setScale={setScale}
+            branchColorOverride={branchColorOverride} setBranchColorOverride={setBranchColorOverride}
+            centerColor={centerColor} setCenterColor={setCenterColor}
           />
         )}
       </div>
@@ -570,58 +370,28 @@ export default function App() {
 }
 
 function Row({
-  task,
-  depth,
-  tasks,
-  draggingId,
-  hoverId,
-  setHoverId,
-  startDrag,
-  renameTask,
-  editGesture,
-  LONGPRESS_MS,
+  task, depth, tasks, draggingId, hoverId, setHoverId, startDrag, renameTask, editGesture, LONGPRESS_MS
 }: {
-  task: Task;
-  depth: number;
-  tasks: Task[];
-  draggingId: string | null;
-  hoverId: string | null;
+  task: Task; depth: number; tasks: Task[];
+  draggingId: string | null; hoverId: string | null;
   setHoverId: (id: string | null) => void;
   startDrag: (id: string) => void;
   renameTask: (id: string, title: string) => void;
   editGesture: React.MutableRefObject<{
-    pointerId: number;
-    rowEl: HTMLElement;
-    startX: number;
-    startY: number;
-    started: boolean;
-    taskId: string;
+    pointerId: number; rowEl: HTMLElement; startX: number; startY: number; started: boolean; taskId: string;
   } | null>;
   LONGPRESS_MS: number;
 }) {
-  const children = tasks.filter((t) => t.parentId === task.id);
-  const isDroppable = (srcId: string | null) =>
-    !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
+  const children = tasks.filter(t => t.parentId === task.id);
+  const isDroppable = (srcId: string | null) => !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
 
   const longPressTimer = useRef<number | null>(null);
-  const clearTimer = () => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
+  const clearTimer = () => { if (longPressTimer.current !== null) { window.clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
 
   const handlePointerDownDragZone = (e: React.PointerEvent) => {
     const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
     const id = rowEl.dataset.taskId!;
-    editGesture.current = {
-      pointerId: e.pointerId,
-      rowEl,
-      startX: e.clientX,
-      startY: e.clientY,
-      started: false,
-      taskId: id,
-    };
+    editGesture.current = { pointerId: e.pointerId, rowEl, startX: e.clientX, startY: e.clientY, started: false, taskId: id };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     clearTimer();
     longPressTimer.current = window.setTimeout(() => {
@@ -634,11 +404,7 @@ function Row({
 
   const handlePointerUpAnywhere = (e: React.PointerEvent) => {
     clearTimer();
-    if (
-      editGesture.current &&
-      e.pointerId === editGesture.current.pointerId &&
-      !editGesture.current.started
-    ) {
+    if (editGesture.current && e.pointerId === editGesture.current.pointerId && !editGesture.current.started) {
       editGesture.current = null;
     }
   };
@@ -646,17 +412,11 @@ function Row({
   return (
     <>
       <div
-        className={`task-row ${
-          isDroppable(draggingId) && hoverId === task.id ? "drop-hover" : ""
-        } ${draggingId === task.id ? "dragging-row" : ""}`}
+        className={`task-row ${isDroppable(draggingId) && hoverId === task.id ? "drop-hover" : ""} ${draggingId === task.id ? "dragging-row" : ""}`}
         style={{ paddingLeft: depth * 28 }}
         data-task-id={task.id}
-        onPointerEnter={() => {
-          if (isDroppable(draggingId)) setHoverId(task.id);
-        }}
-        onPointerLeave={() => {
-          if (hoverId === task.id) setHoverId(null);
-        }}
+        onPointerEnter={() => { if (isDroppable(draggingId)) setHoverId(task.id); }}
+        onPointerLeave={() => { if (hoverId === task.id) setHoverId(null); }}
         onPointerDown={(e) => {
           const target = e.target as HTMLElement;
           if (target.closest(".task-input")) return;
@@ -664,30 +424,14 @@ function Row({
         }}
         onPointerUp={handlePointerUpAnywhere}
       >
-        <span
-          className="drag-handle left"
-          onPointerDown={handlePointerDownDragZone}
-        />
-        {/* Hierarchie-Farbe über depth */}
-        <span
-          className="task-bullet"
-          style={{ backgroundColor: colorForDepth(depth) }}
-          onPointerDown={handlePointerDownDragZone}
-        />
-        <input
-          className="task-input"
-          value={task.title}
-          onChange={(e) => renameTask(task.id, e.target.value)}
-          placeholder="Task title…"
-        />
+        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
+        <span className="task-bullet" onPointerDown={handlePointerDownDragZone} />
+        <input className="task-input" value={task.title} onChange={e => renameTask(task.id, e.target.value)} placeholder="Task title…" />
         {task.parentId && <span className="task-parent-label">child</span>}
-        <span
-          className="drag-handle right"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
-      {children.map((c) => (
+      {children.map(c => (
         <Row
           key={c.id}
           task={c}
