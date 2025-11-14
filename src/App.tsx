@@ -425,7 +425,11 @@ function Row({
         onPointerUp={handlePointerUpAnywhere}
       >
         <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
-        <span className="task-bullet" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="task-bullet"
+          style={{ backgroundColor: "#000000" }}
+          onPointerDown={handlePointerDownDragZone}
+        />
         <input className="task-input" value={task.title} onChange={e => renameTask(task.id, e.target.value)} placeholder="Task title…" />
         {task.parentId && <span className="task-parent-label">child</span>}
         <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
