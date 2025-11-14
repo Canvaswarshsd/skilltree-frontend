@@ -163,28 +163,23 @@ function splitTitleLines(
   const s = String(t ?? "").trim();
   if (!s) return ["Project"];
 
-  const hardParts = s.split(/\r?\n/); // respektiere manuelle Zeilenumbrüche
+  const hardParts = s.split(/\r?\n/);
   const lines: string[] = [];
 
   for (let part of hardParts) {
-    // Wrap solange Inhalt vorhanden ist
     while (part.length > 0 && lines.length < maxLines) {
       if (part.length <= maxLen) {
         lines.push(part);
         part = "";
         break;
       }
-      // suche letztes Leerzeichen im Fenster [0..maxLen]
       let breakAt = part.lastIndexOf(" ", maxLen);
       if (breakAt > 0) {
-        // normaler Wortumbruch an Leerzeichen
         const line = part.slice(0, breakAt);
         lines.push(line);
-        // entferne genau ein Leerzeichen
         part = part.slice(breakAt + 1);
       } else {
-        // kein Leerzeichen im Fenster: harte Trennung mit sichtbarem Bindestrich
-        const sliceLen = Math.max(1, maxLen - 1); // Platz für '-'
+        const sliceLen = Math.max(1, maxLen - 1);
         const line = part.slice(0, sliceLen) + "-";
         lines.push(line);
         part = part.slice(sliceLen);
@@ -519,7 +514,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenu(e.clientX, e.clientY, id);
   };
 
-  /* ---------- Export: Layout-BBox + DOM-Screenshot ---------- */
+  /* ---------- Export: DOM-Screenshot der echten TaskMap ---------- */
 
   type NodeGeom = {
     id: string;
@@ -547,6 +542,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return t.color ?? rootColor;
   }
 
+  // computeExportLayout bleibt nur noch als Geometrie-Info bestehen (falls später gebraucht),
+  // wird aber NICHT mehr genutzt, um pan/scale zu verändern.
   function computeExportLayout(): {
     nodes: NodeGeom[];
     edges: EdgeGeom[];
@@ -555,7 +552,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const nodes: NodeGeom[] = [];
     const edges: EdgeGeom[] = [];
 
-    // Center
     nodes.push({
       id: "CENTER",
       title: projectTitle || "Project",
@@ -693,59 +689,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return (window as any).html2canvas;
   }
 
-  // zentrale Funktion: reale TaskMap in sinnvoller Größe screenshotten
+  // NEU: Screenshot ohne pan/scale zu verändern – 1:1 das, was der Nutzer sieht
   async function captureMapCanvas(): Promise<HTMLCanvasElement> {
     const el = wrapperRef.current;
     if (!el) {
       throw new Error("Map container not found");
     }
-
-    const rect = el.getBoundingClientRect();
-    const { bbox } = computeExportLayout();
-    const worldWidth = Math.max(1, bbox.maxX - bbox.minX);
-    const worldHeight = Math.max(1, bbox.maxY - bbox.minY);
-
-    const marginFactor = 1.25; // etwas Luft um die TaskMap
-    const scaleX = rect.width / (worldWidth * marginFactor);
-    const scaleY = rect.height / (worldHeight * marginFactor);
-    const exportScale = Math.max(0.1, Math.min(scaleX, scaleY));
-
-    const worldCx = (bbox.minX + bbox.maxX) / 2;
-    const worldCy = (bbox.minY + bbox.maxY) / 2;
-    const viewCx = rect.width / 2;
-    const viewCy = rect.height / 2;
-
-    const exportPan = {
-      x: viewCx - worldCx * exportScale,
-      y: viewCy - worldCy * exportScale,
-    };
-
-    // aktuellen View merken
-    const oldPan = { ...pan };
-    const oldScale = scale;
-
-    // temporär auf "alles sichtbar" setzen
-    setScale(exportScale);
-    setPan(exportPan);
-
-    // warten, bis React/Browser gerendert hat
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
-      });
-    });
-
     const html2canvas = await loadHtml2Canvas();
     const canvas: HTMLCanvasElement = await html2canvas(el, {
       backgroundColor: "#ffffff",
       useCORS: true,
       scale: 2, // höhere Auflösung im Export
     });
-
-    // View wieder herstellen
-    setScale(oldScale);
-    setPan(oldPan);
-
     return canvas;
   }
 
