@@ -1056,7 +1056,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       {/* Progress-HUD rechts oben (nicht im Export sichtbar, wegen map-export-hide) */}
       {totalTasks > 0 && (
         <div className="map-progress map-export-hide">
-          <div className="map-progress-label">Quest Progress</div>
+          <div className="map-progress-label">Progress</div>
           <div className="map-progress-row">
             <div className="map-progress-bar" aria-hidden="true">
               <div
