@@ -507,24 +507,26 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenu(e.clientX, e.clientY, id);
   };
 
-  /* ---------- Export: echte Map als Canvas/JPG/PDF ---------- */
+  /* ---------- Export: Screenshot der echten Map (html-to-image) ---------- */
 
-  async function loadHtml2Canvas() {
-    if ((window as any).html2canvas) return (window as any).html2canvas;
+  async function loadHtmlToImage() {
+    const w = window as any;
+    if (w.htmlToImage) return w.htmlToImage;
     await new Promise<void>((resolve, reject) => {
       const s = document.createElement("script");
       s.src =
-        "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+        "https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js";
       s.async = true;
       s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Failed to load html2canvas"));
+      s.onerror = () => reject(new Error("Failed to load html-to-image"));
       document.head.appendChild(s);
     });
-    return (window as any).html2canvas;
+    return (window as any).htmlToImage;
   }
 
   async function loadJsPDF() {
-    if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF;
+    const w = window as any;
+    if (w.jspdf?.jsPDF) return w.jspdf.jsPDF;
     await new Promise<void>((resolve, reject) => {
       const s = document.createElement("script");
       s.src = "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js";
@@ -536,47 +538,59 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return (window as any).jspdf.jsPDF;
   }
 
-  async function captureMapAsCanvas(): Promise<HTMLCanvasElement> {
+  const captureMapAsDataUrl = async (
+    format: "jpeg" | "png"
+  ): Promise<string> => {
     const el = wrapperRef.current;
     if (!el) throw new Error("Map wrapper not found");
 
-    const html2canvas = await loadHtml2Canvas();
+    const htmlToImage = await loadHtmlToImage();
 
-    const rect = el.getBoundingClientRect();
-    const scaleFactor = window.devicePixelRatio || 2;
+    // nur den Map-Bereich (inkl. SVG und Schatten) rendern
+    const target =
+      (el.querySelector(".map-origin") as HTMLElement | null) ?? el;
 
-    const canvas: HTMLCanvasElement = await html2canvas(el, {
-      backgroundColor: "#ffffff",
-      scale: scaleFactor,
-      width: rect.width,
-      height: rect.height,
-      scrollX: 0,
-      scrollY: 0,
-      logging: false,
-    });
+    const pixelRatio = window.devicePixelRatio || 2;
+    const backgroundColor = "#ffffff";
 
-    return canvas;
-  }
+    if (format === "jpeg") {
+      return await htmlToImage.toJpeg(target, {
+        quality: 0.95,
+        backgroundColor,
+        pixelRatio,
+      });
+    } else {
+      return await htmlToImage.toPng(target, {
+        backgroundColor,
+        pixelRatio,
+      });
+    }
+  };
 
-  async function doDownloadJPG() {
-    const canvas = await captureMapAsCanvas();
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+  const doDownloadJPG = async () => {
+    const dataUrl = await captureMapAsDataUrl("jpeg");
     const a = document.createElement("a");
     a.href = dataUrl;
     a.download = buildImageFileName(projectTitle, "jpg");
     document.body.appendChild(a);
     a.click();
     a.remove();
-  }
+  };
 
-  async function doDownloadPDF() {
-    const canvas = await captureMapAsCanvas();
-    const imgData = canvas.toDataURL("image/jpeg", 0.95);
-
+  const doDownloadPDF = async () => {
+    const imgData = await captureMapAsDataUrl("png");
     const jsPDF = await loadJsPDF();
 
-    const width = canvas.width;
-    const height = canvas.height;
+    // Bildgröße bestimmen
+    const img = new Image();
+    img.src = imgData;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Image load failed"));
+    });
+
+    const width = img.naturalWidth || img.width;
+    const height = img.naturalHeight || img.height;
 
     const pdf = new jsPDF({
       orientation: width >= height ? "landscape" : "portrait",
@@ -585,9 +599,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       compress: true,
     });
 
-    pdf.addImage(imgData, "JPEG", 0, 0, width, height);
+    pdf.addImage(imgData, "PNG", 0, 0, width, height);
     pdf.save(buildImageFileName(projectTitle, "pdf"));
-  }
+  };
 
   /* ---------- Ref-API ---------- */
   const resetView = () => {
