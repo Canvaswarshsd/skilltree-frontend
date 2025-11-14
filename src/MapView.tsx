@@ -240,6 +240,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return value;
   }
 
+  // Fortschritt (Gamification HUD)
+  const totalTasks = tasks.length;
+  const doneCount = useMemo(() => {
+    if (!totalTasks) return 0;
+    return tasks.reduce(
+      (acc, t) => acc + (computeEffectiveDoneForTaskId(t.id) ? 1 : 0),
+      0
+    );
+  }, [tasks, centerDone, totalTasks]);
+  const progressPercent =
+    totalTasks === 0 ? 0 : Math.round((doneCount / totalTasks) * 100);
+
   /* ---------- Node-Drag (Visualize) ---------- */
   const vDrag = useRef<{
     id: string;
@@ -579,6 +591,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       throw new Error("Map has zero size – cannot export image");
     }
 
+    // HUD-Elemente (Progress etc.) für Export unsichtbar machen
+    const exportHudNodes = Array.from(
+      target.querySelectorAll<HTMLElement>(".map-export-hide")
+    );
+    const prevVisibility = exportHudNodes.map((n) => n.style.visibility);
+    exportHudNodes.forEach((n) => {
+      n.style.visibility = "hidden";
+    });
+
     // 1) Aktuelle View merken
     const originalScale = scale;
     const originalPan = { ...pan };
@@ -637,6 +658,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         ? err
         : new Error("Unknown error during map export");
     } finally {
+      // HUD wiederherstellen
+      exportHudNodes.forEach((n, i) => {
+        n.style.visibility = prevVisibility[i];
+      });
+
       // 4) View wieder auf ursprüngliche Werte zurücksetzen
       if (viewAdjusted) {
         setScale(originalScale);
@@ -818,7 +844,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const cy = cyBase + ko.y;
 
       const task = getTask(kid.id);
-      const explicitDone = typeof task?.done === "boolean" ? task.done : undefined;
+      const explicitDone =
+        typeof task?.done === "boolean" ? task.done : undefined;
       const isDone =
         explicitDone !== undefined ? explicitDone : inheritedDone;
 
@@ -1026,6 +1053,22 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       </div>
 
+      {/* Progress-HUD rechts oben (nicht im Export sichtbar, wegen map-export-hide) */}
+      {totalTasks > 0 && (
+        <div className="map-progress map-export-hide">
+          <div className="map-progress-label">Quest Progress</div>
+          <div className="map-progress-row">
+            <div className="map-progress-bar" aria-hidden="true">
+              <div
+                className="map-progress-bar-fill"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <div className="map-progress-value">{progressPercent}%</div>
+          </div>
+        </div>
+      )}
+
       {/* Kontextmenü */}
       {ctxMenu.open && ctxMenu.taskId && (
         <div
@@ -1043,7 +1086,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 "ctxmenu-doneBtn" +
                 ((ctxMenu.taskId === CENTER_ID
                   ? centerDone
-                  : computeEffectiveDoneForTaskId(ctxMenu.taskId)) // Button zeigt den effektiven Status
+                  : computeEffectiveDoneForTaskId(ctxMenu.taskId))
                   ? " ctxmenu-doneBtn-active"
                   : "")
               }
