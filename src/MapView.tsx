@@ -158,7 +158,7 @@ function splitTitleLines(
   const s = String(t ?? "").trim();
   if (!s) return ["Project"];
 
-  const hardParts = s.split(/\r?\n/); // respektiere manuelle Zeilenumbrüche
+  const hardParts = s.split(/\r?\n/);
   const lines: string[] = [];
 
   for (let part of hardParts) {
@@ -509,7 +509,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenu(e.clientX, e.clientY, id);
   };
 
-  /* ---------- Export: Screenshot der Map (html-to-image) ---------- */
+  /* ---------- Export: Screenshot der Map (mit leichtem Auto-Zoom) ---------- */
 
   const captureMapAsDataUrl = async (
     format: "jpeg" | "png"
@@ -519,20 +519,40 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       throw new Error("Map wrapper not found");
     }
 
-    // Wir capturen bewusst den gesamten sichtbaren Wrapper,
-    // damit Größe/BBox sauber sind.
     const target = el as HTMLElement;
-
     const rect = target.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       throw new Error("Map has zero size – cannot export image");
     }
 
-    // Begrenze Auflösung etwas, um riesige Canvas & Browserfehler zu vermeiden
-    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
-    const backgroundColor = "#ffffff";
+    // 1) Aktuelle View merken
+    const originalScale = scale;
+    const originalPan = { ...pan };
+    let viewAdjusted = false;
 
+    // 2) Für Export leicht herauszoomen, damit oben/unten etwas Rand entsteht
     try {
+      const factor = 0.85; // wie weit rauszoomen für den Export
+      const desiredScale = Math.max(MIN_Z, originalScale * factor);
+
+      if (desiredScale < originalScale) {
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        zoomAt(cx, cy, desiredScale);
+        viewAdjusted = true;
+
+        // DOM-Update abwarten (2 Frames, um sicherzugehen)
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => resolve())
+          )
+        );
+      }
+
+      // 3) Bild wirklich rendern
+      const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+      const backgroundColor = "#ffffff";
+
       if (format === "jpeg") {
         const dataUrl = await htmlToImage.toJpeg(target, {
           quality: 0.95,
@@ -562,6 +582,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       throw err instanceof Error
         ? err
         : new Error("Unknown error during map export");
+    } finally {
+      // 4) View wieder auf ursprüngliche Werte zurücksetzen
+      if (viewAdjusted) {
+        setScale(originalScale);
+        setPan(originalPan);
+      }
     }
   };
 
