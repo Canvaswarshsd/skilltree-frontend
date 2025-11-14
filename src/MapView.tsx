@@ -126,7 +126,7 @@ function segmentBetweenCircles(
   return { x1, y1, x2, y2 };
 }
 
-/* ---------- Kleine Utils für Export ---------- */
+/* ---------- Kleine Utils ---------- */
 function slugifyTitle(t: string) {
   return t
     .trim()
@@ -138,13 +138,6 @@ function slugifyTitle(t: string) {
 function buildImageFileName(projectTitle: string, ext: "jpg" | "pdf") {
   const base = slugifyTitle(projectTitle) || "taskmap";
   return `${base}.${ext}`;
-}
-function esc(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -167,24 +160,19 @@ function splitTitleLines(
   const lines: string[] = [];
 
   for (let part of hardParts) {
-    // Wrap solange Inhalt vorhanden ist
     while (part.length > 0 && lines.length < maxLines) {
       if (part.length <= maxLen) {
         lines.push(part);
         part = "";
         break;
       }
-      // suche letztes Leerzeichen im Fenster [0..maxLen]
       let breakAt = part.lastIndexOf(" ", maxLen);
       if (breakAt > 0) {
-        // normaler Wortumbruch an Leerzeichen
         const line = part.slice(0, breakAt);
         lines.push(line);
-        // entferne genau ein Leerzeichen
         part = part.slice(breakAt + 1);
       } else {
-        // kein Leerzeichen im Fenster: harte Trennung mit sichtbarem Bindestrich
-        const sliceLen = Math.max(1, maxLen - 1); // Platz für '-'
+        const sliceLen = Math.max(1, maxLen - 1);
         const line = part.slice(0, sliceLen) + "-";
         lines.push(line);
         part = part.slice(sliceLen);
@@ -519,234 +507,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenu(e.clientX, e.clientY, id);
   };
 
-  /* ---------- Export (SVG → Canvas → JPG/PDF) ---------- */
-  type NodeGeom = {
-    id: string;
-    title: string;
-    x: number;
-    y: number;
-    r: number;
-    color: string;
-    fontSize: number;
-  };
-  type EdgeGeom = {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-    color: string;
-  };
+  /* ---------- Export: echte Map als Canvas/JPG/PDF ---------- */
 
-  const getChildren = (id: string) => tasks.filter((t) => t.parentId === id);
-
-  function nodeColor(taskId: string, rootColor: string): string {
-    const t = getTask(taskId);
-    if (!t) return rootColor;
-    if (t.parentId === null) return rootColor;
-    return t.color ?? rootColor;
-  }
-
-  function computeExportLayout(): {
-    nodes: NodeGeom[];
-    edges: EdgeGeom[];
-    bbox: { minX: number; minY: number; maxX: number; maxY: number };
-  } {
-    const nodes: NodeGeom[] = [];
-    const edges: EdgeGeom[] = [];
-
-    // Center
-    nodes.push({
-      id: "CENTER",
-      title: projectTitle || "Project",
-      x: 0,
-      y: 0,
-      r: R_CENTER,
-      color: centerColor,
-      fontSize: 20,
+  async function loadHtml2Canvas() {
+    if ((window as any).html2canvas) return (window as any).html2canvas;
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src =
+        "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load html2canvas"));
+      document.head.appendChild(s);
     });
-
-    const rootsList = tasks.filter((t) => t.parentId === null);
-    const total = Math.max(rootsList.length, 1);
-    const getOff = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
-
-    function placeChildren(
-      parentId: string,
-      px: number,
-      py: number,
-      pr: number,
-      rootColor: string,
-      gpx: number,
-      gpy: number
-    ) {
-      const kids = getChildren(parentId);
-      if (kids.length === 0) return;
-
-      const base = Math.atan2(py - gpy, px - gpx);
-      const SPREAD = Math.min(
-        Math.PI,
-        Math.max(Math.PI * 0.6, (kids.length - 1) * (Math.PI / 6))
-      );
-      const step = kids.length === 1 ? 0 : SPREAD / (kids.length - 1);
-      const start = base - SPREAD / 2;
-
-      kids.forEach((kid, idx) => {
-        const ang = start + idx * step;
-        const ko = getOff(kid.id);
-        const cx = px + Math.cos(ang) * RING + ko.x;
-        const cy = py + Math.sin(ang) * RING + ko.y;
-
-        const seg = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
-        edges.push({
-          x1: seg.x1,
-          y1: seg.y1,
-          x2: seg.x2,
-          y2: seg.y2,
-          color: rootColor,
-        });
-
-        const nColor = nodeColor(kid.id, rootColor);
-        nodes.push({
-          id: kid.id,
-          title: kid.title,
-          x: cx,
-          y: cy,
-          r: R_CHILD,
-          color: nColor,
-          fontSize: 16,
-        });
-
-        placeChildren(kid.id, cx, cy, R_CHILD, rootColor, px, py);
-      });
-    }
-
-    rootsList.forEach((root, i) => {
-      const ang = (i / total) * Math.PI * 2;
-      const ro = getOff(root.id);
-      const rx = Math.cos(ang) * ROOT_RADIUS + ro.x;
-      const ry = Math.sin(ang) * ROOT_RADIUS + ro.y;
-      const rootColor =
-        branchColorOverride?.[root.id] ??
-        BRANCH_COLORS[i % BRANCH_COLORS.length];
-
-      const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
-      edges.push({
-        x1: seg.x1,
-        y1: seg.y1,
-        x2: seg.x2,
-        y2: seg.y2,
-        color: rootColor,
-      });
-
-      nodes.push({
-        id: root.id,
-        title: root.title,
-        x: rx,
-        y: ry,
-        r: R_ROOT,
-        color: rootColor,
-        fontSize: 18,
-      });
-
-      placeChildren(root.id, rx, ry, R_ROOT, rootColor, 0, 0);
-    });
-
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const n of nodes) {
-      minX = Math.min(minX, n.x - n.r);
-      minY = Math.min(minY, n.y - n.r);
-      maxX = Math.max(maxX, n.x + n.r);
-      maxY = Math.max(maxY, n.y + n.r);
-    }
-    for (const e of edges) {
-      minX = Math.min(minX, e.x1, e.x2);
-      minY = Math.min(minY, e.y1, e.y2);
-      maxX = Math.max(maxX, e.x1, e.x2);
-      maxY = Math.max(maxY, e.y1, e.y2);
-    }
-
-    const PAD = 140;
-    minX -= PAD;
-    minY -= PAD;
-    maxX += PAD;
-    maxY += PAD;
-
-    return { nodes, edges, bbox: { minX, minY, maxX, maxY } };
-  }
-
-  function buildSVGForExport(): { svg: string; width: number; height: number } {
-    const { nodes, edges, bbox } = computeExportLayout();
-    const width = Math.ceil(bbox.maxX - bbox.minX);
-    const height = Math.ceil(bbox.maxY - bbox.minY);
-
-    const parts: string[] = [];
-    parts.push(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bbox.minX} ${bbox.minY} ${width} ${height}">`,
-      `<defs><style>.lbl{font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight:700; fill:#fff; text-anchor:middle; dominant-baseline:middle;}</style></defs>`,
-      `<rect x="${bbox.minX}" y="${bbox.minY}" width="${width}" height="${height}" fill="#ffffff"/>`
-    );
-
-    for (const e of edges) {
-      parts.push(
-        `<line x1="${e.x1}" y1="${e.y1}" x2="${e.x2}" y2="${e.y2}" stroke="${e.color}" stroke-width="6" stroke-linecap="round"/>`
-      );
-    }
-
-    for (const n of nodes) {
-      parts.push(
-        `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" />`
-      );
-      const maxLen =
-        n.id === "CENTER" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
-      const fs = n.fontSize;
-      const lines = splitTitleLines(n.title, maxLen, 3);
-      const total = lines.length;
-      lines.forEach((ln, idx) => {
-        const dy = (idx - (total - 1) / 2) * (fs * 1.1);
-        parts.push(
-          `<text class="lbl" x="${n.x}" y="${
-            n.y + dy
-          }" font-size="${fs}">${esc(ln)}</text>`
-        );
-      });
-    }
-
-    parts.push(`</svg>`);
-    return { svg: parts.join(""), width, height };
-  }
-
-  async function svgToCanvas(
-    svg: string,
-    width: number,
-    height: number,
-    scaleMul = 2
-  ): Promise<HTMLCanvasElement> {
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = new Image();
-      img.decoding = "sync";
-      const loaded = new Promise<void>((res, rej) => {
-        img.onload = () => res();
-        img.onerror = () => rej(new Error("SVG image load failed"));
-      });
-      img.src = url;
-      await loaded;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width * scaleMul));
-      canvas.height = Math.max(1, Math.round(height * scaleMul));
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return canvas;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    return (window as any).html2canvas;
   }
 
   async function loadJsPDF() {
@@ -762,9 +536,30 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return (window as any).jspdf.jsPDF;
   }
 
+  async function captureMapAsCanvas(): Promise<HTMLCanvasElement> {
+    const el = wrapperRef.current;
+    if (!el) throw new Error("Map wrapper not found");
+
+    const html2canvas = await loadHtml2Canvas();
+
+    const rect = el.getBoundingClientRect();
+    const scaleFactor = window.devicePixelRatio || 2;
+
+    const canvas: HTMLCanvasElement = await html2canvas(el, {
+      backgroundColor: "#ffffff",
+      scale: scaleFactor,
+      width: rect.width,
+      height: rect.height,
+      scrollX: 0,
+      scrollY: 0,
+      logging: false,
+    });
+
+    return canvas;
+  }
+
   async function doDownloadJPG() {
-    const { svg, width, height } = buildSVGForExport();
-    const canvas = await svgToCanvas(svg, width, height, 2);
+    const canvas = await captureMapAsCanvas();
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
     const a = document.createElement("a");
     a.href = dataUrl;
@@ -775,17 +570,21 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }
 
   async function doDownloadPDF() {
-    const { svg, width, height } = buildSVGForExport();
-    const canvas = await svgToCanvas(svg, width, height, 2);
+    const canvas = await captureMapAsCanvas();
     const imgData = canvas.toDataURL("image/jpeg", 0.95);
 
     const jsPDF = await loadJsPDF();
+
+    const width = canvas.width;
+    const height = canvas.height;
+
     const pdf = new jsPDF({
       orientation: width >= height ? "landscape" : "portrait",
       unit: "px",
       format: [width, height],
       compress: true,
     });
+
     pdf.addImage(imgData, "JPEG", 0, 0, width, height);
     pdf.save(buildImageFileName(projectTitle, "pdf"));
   }
