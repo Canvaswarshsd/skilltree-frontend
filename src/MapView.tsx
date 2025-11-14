@@ -15,7 +15,7 @@ export type Task = {
   title: string;
   parentId: string | null;
   color?: string; // individuelle Node-Farbe (nur Kreis)
-  done?: boolean; // Done-Status
+  done?: boolean; // manueller Done-Status (Vererbung wie bei Farben)
 };
 
 export type MapApi = {
@@ -48,7 +48,7 @@ type MapViewProps = {
   centerColor: string;
   setCenterColor: React.Dispatch<React.SetStateAction<string>>;
 
-  // für Child-Einzelfarben:
+  // für Child-Einzelfarben + Done:
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
 
   // aktiviert Pointer-/Wheel-Handling nur wenn sichtbar
@@ -207,6 +207,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
+  // Done-Status für das Projekt (Zentrum) – vererbt sich wie eine Wurzel nach unten
+  const [centerDone, setCenterDone] = useState<boolean>(false);
+
   // Derive helpers
   const roots = useMemo(
     () => tasks.filter((t) => t.parentId === null),
@@ -217,6 +220,25 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset((prev) => ({ ...prev, [id]: { x, y } }));
+
+  // effektiver Done-Status einer Aufgabe (CSS-artige Vererbung: Projekt → Eltern → Kind)
+  function computeEffectiveDoneForTaskId(taskId: string): boolean {
+    const chain: Task[] = [];
+    let cur: Task | undefined = getTask(taskId);
+    while (cur) {
+      chain.push(cur);
+      cur = cur.parentId ? getTask(cur.parentId) : undefined;
+    }
+    let value = !!centerDone;
+    // von oben nach unten laufen (Root zuerst, Node zuletzt)
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const t = chain[i];
+      if (typeof t.done === "boolean") {
+        value = t.done;
+      }
+    }
+    return value;
+  }
 
   /* ---------- Node-Drag (Visualize) ---------- */
   const vDrag = useRef<{
@@ -505,32 +527,34 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const toggleDone = () => {
     if (!ctxMenu.taskId) return;
-    if (ctxMenu.taskId === CENTER_ID) return;
 
-    const targetId = ctxMenu.taskId;
+    // Projekt-Kreis (Center) toggeln: wirkt als globale "Root"-Vererbung
+    if (ctxMenu.taskId === CENTER_ID) {
+      setCenterDone((prev) => !prev);
+      return;
+    }
 
-    setTasks((prev) => {
-      const target = prev.find((t) => t.id === targetId);
-      if (!target) return prev;
-      const nextDone = !target.done;
+    const id = ctxMenu.taskId;
+    const t = getTask(id);
+    if (!t) return;
 
-      // einfache Vererbung: alle Nachkommen übernehmen den gleichen Status
-      const toUpdate = new Set<string>();
-      const queue = [targetId];
-      while (queue.length) {
-        const id = queue.shift()!;
-        toUpdate.add(id);
-        for (const t of prev) {
-          if (t.parentId === id && !toUpdate.has(t.id)) {
-            queue.push(t.id);
-          }
-        }
-      }
+    const explicit = t.done;
+    const effective = computeEffectiveDoneForTaskId(id);
 
-      return prev.map((t) =>
-        toUpdate.has(t.id) ? { ...t, done: nextDone } : t
-      );
-    });
+    let nextExplicit: boolean;
+    if (explicit === undefined) {
+      // war bisher nur vererbt -> Klick invertiert den sichtbaren Zustand
+      nextExplicit = !effective;
+    } else if (explicit === true) {
+      nextExplicit = false;
+    } else {
+      nextExplicit = true;
+    }
+
+    // Nur dieser Task bekommt einen expliziten Wert – Kinder erben wie bei Farben
+    setTasks((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, done: nextExplicit } : x))
+    );
   };
 
   const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
@@ -770,7 +794,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     py: number,
     rootColor: string,
     gpx: number,
-    gpy: number
+    gpy: number,
+    inheritedDone: boolean
   ): JSX.Element[] {
     const kids = childrenOf(parentId);
     if (kids.length === 0) return [];
@@ -792,13 +817,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const cx = cxBase + ko.x;
       const cy = cyBase + ko.y;
 
+      const task = getTask(kid.id);
+      const explicitDone = typeof task?.done === "boolean" ? task.done : undefined;
+      const isDone =
+        explicitDone !== undefined ? explicitDone : inheritedDone;
+
       const nColor = (() => {
         const t = getTask(kid.id);
         return t?.parentId ? t.color ?? rootColor : rootColor;
       })();
-
-      const task = getTask(kid.id);
-      const isDone = !!task?.done;
 
       nodes.push(
         <div
@@ -825,7 +852,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       nodes.push(
-        ...renderChildNodesWithOffsets(kid.id, cx, cy, rootColor, px, py)
+        ...renderChildNodesWithOffsets(
+          kid.id,
+          cx,
+          cy,
+          rootColor,
+          px,
+          py,
+          isDone
+        )
       );
     });
 
@@ -912,6 +947,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           <div
             className="skill-node center-node"
             style={{ background: centerColor }}
+            data-done={centerDone ? "true" : "false"}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -921,6 +957,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               document.documentElement.lang || navigator.language || "en"
             }
           >
+            {centerDone && (
+              <div className="done-badge" aria-hidden="true">
+                <span className="done-badge-check">✓</span>
+              </div>
+            )}
             {renderTitleAsSpans(projectTitle || "Project", MAXLEN_CENTER)}
           </div>
 
@@ -938,7 +979,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               BRANCH_COLORS[i % BRANCH_COLORS.length];
 
             const rootTask = getTask(root.id);
-            const rootDone = !!rootTask?.done;
+            const explicitRootDone =
+              typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
+            const rootDone =
+              explicitRootDone !== undefined ? explicitRootDone : centerDone;
 
             return (
               <React.Fragment key={`root-node-${root.id}`}>
@@ -973,7 +1017,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   ry,
                   rootColor,
                   0,
-                  0
+                  0,
+                  rootDone
                 )}
               </React.Fragment>
             );
@@ -993,19 +1038,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         >
           <div className="ctxmenu-header">
             <div className="ctxmenu-title">Color</div>
-            {ctxMenu.taskId !== CENTER_ID && (
-              <button
-                className={
-                  "ctxmenu-doneBtn" +
-                  (getTask(ctxMenu.taskId!)?.done
-                    ? " ctxmenu-doneBtn-active"
-                    : "")
-                }
-                onClick={toggleDone}
-              >
-                Done
-              </button>
-            )}
+            <button
+              className={
+                "ctxmenu-doneBtn" +
+                ((ctxMenu.taskId === CENTER_ID
+                  ? centerDone
+                  : computeEffectiveDoneForTaskId(ctxMenu.taskId)) // Button zeigt den effektiven Status
+                  ? " ctxmenu-doneBtn-active"
+                  : "")
+              }
+              onClick={toggleDone}
+            >
+              Done
+            </button>
           </div>
           <div className="ctxmenu-swatches">
             {COLOR_SWATCHES.map((hex) => (
