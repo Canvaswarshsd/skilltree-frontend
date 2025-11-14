@@ -1,4 +1,3 @@
-// frontend/src/MapView.tsx
 import React, {
   forwardRef,
   useEffect,
@@ -16,6 +15,7 @@ export type Task = {
   title: string;
   parentId: string | null;
   color?: string; // individuelle Node-Farbe (nur Kreis)
+  done?: boolean; // Done-Status
 };
 
 export type MapApi = {
@@ -442,7 +442,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [scale, active]);
 
-  /* ---------- Kontextmenü: Farbe ---------- */
+  /* ---------- Kontextmenü: Farbe + Done ---------- */
   const [ctxMenu, setCtxMenu] = useState<{
     open: boolean;
     x: number;
@@ -501,6 +501,36 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
     }
     closeColorMenu();
+  };
+
+  const toggleDone = () => {
+    if (!ctxMenu.taskId) return;
+    if (ctxMenu.taskId === CENTER_ID) return;
+
+    const targetId = ctxMenu.taskId;
+
+    setTasks((prev) => {
+      const target = prev.find((t) => t.id === targetId);
+      if (!target) return prev;
+      const nextDone = !target.done;
+
+      // einfache Vererbung: alle Nachkommen übernehmen den gleichen Status
+      const toUpdate = new Set<string>();
+      const queue = [targetId];
+      while (queue.length) {
+        const id = queue.shift()!;
+        toUpdate.add(id);
+        for (const t of prev) {
+          if (t.parentId === id && !toUpdate.has(t.id)) {
+            queue.push(t.id);
+          }
+        }
+      }
+
+      return prev.map((t) =>
+        toUpdate.has(t.id) ? { ...t, done: nextDone } : t
+      );
+    });
   };
 
   const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
@@ -767,6 +797,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         return t?.parentId ? t.color ?? rootColor : rootColor;
       })();
 
+      const task = getTask(kid.id);
+      const isDone = !!task?.done;
+
       nodes.push(
         <div
           key={`node-${parentId}-${kid.id}`}
@@ -775,12 +808,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             transform: `translate(${cx}px, ${cy}px) translate(-50%, -50%)`,
             background: nColor,
           }}
+          data-done={isDone ? "true" : "false"}
           onPointerDown={(e) => startNodeDrag(kid.id, e)}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={
             document.documentElement.lang || navigator.language || "en"
           }
         >
+          {isDone && (
+            <div className="done-badge" aria-hidden="true">
+              <span className="done-badge-check">✓</span>
+            </div>
+          )}
           {renderTitleAsSpans(kid.title, MAXLEN_ROOT_AND_CHILD)}
         </div>
       );
@@ -898,6 +937,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               branchColorOverride[root.id] ??
               BRANCH_COLORS[i % BRANCH_COLORS.length];
 
+            const rootTask = getTask(root.id);
+            const rootDone = !!rootTask?.done;
+
             return (
               <React.Fragment key={`root-node-${root.id}`}>
                 <div
@@ -906,6 +948,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`,
                     background: rootColor,
                   }}
+                  data-done={rootDone ? "true" : "false"}
                   onPointerDown={(e) => startNodeDrag(root.id, e)}
                   onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                   lang={
@@ -914,6 +957,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     "en"
                   }
                 >
+                  {rootDone && (
+                    <div className="done-badge" aria-hidden="true">
+                      <span className="done-badge-check">✓</span>
+                    </div>
+                  )}
                   {renderTitleAsSpans(
                     root.title,
                     MAXLEN_ROOT_AND_CHILD
@@ -943,7 +991,22 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           }}
           onContextMenu={(e) => e.preventDefault()}
         >
-          <div className="ctxmenu-title">Color</div>
+          <div className="ctxmenu-header">
+            <div className="ctxmenu-title">Color</div>
+            {ctxMenu.taskId !== CENTER_ID && (
+              <button
+                className={
+                  "ctxmenu-doneBtn" +
+                  (getTask(ctxMenu.taskId!)?.done
+                    ? " ctxmenu-doneBtn-active"
+                    : "")
+                }
+                onClick={toggleDone}
+              >
+                Done
+              </button>
+            )}
+          </div>
           <div className="ctxmenu-swatches">
             {COLOR_SWATCHES.map((hex) => (
               <button
