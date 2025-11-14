@@ -7,6 +7,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import * as htmlToImage from "html-to-image";
+import { jsPDF } from "jspdf";
 
 /* ---------- Types (lokal identisch zu App) ---------- */
 export type Task = {
@@ -509,44 +511,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   /* ---------- Export: Screenshot der echten Map (html-to-image) ---------- */
 
-  async function loadHtmlToImage() {
-    const w = window as any;
-    if (w.htmlToImage) return w.htmlToImage;
-    await new Promise<void>((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src =
-        "https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js";
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Failed to load html-to-image"));
-      document.head.appendChild(s);
-    });
-    return (window as any).htmlToImage;
-  }
-
-  async function loadJsPDF() {
-    const w = window as any;
-    if (w.jspdf?.jsPDF) return w.jspdf.jsPDF;
-    await new Promise<void>((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js";
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Failed to load jsPDF"));
-      document.head.appendChild(s);
-    });
-    return (window as any).jspdf.jsPDF;
-  }
-
   const captureMapAsDataUrl = async (
     format: "jpeg" | "png"
   ): Promise<string> => {
     const el = wrapperRef.current;
     if (!el) throw new Error("Map wrapper not found");
 
-    const htmlToImage = await loadHtmlToImage();
-
-    // nur den Map-Bereich (inkl. SVG und Schatten) rendern
     const target =
       (el.querySelector(".map-origin") as HTMLElement | null) ?? el;
 
@@ -579,9 +549,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const doDownloadPDF = async () => {
     const imgData = await captureMapAsDataUrl("png");
-    const jsPDF = await loadJsPDF();
 
-    // Bildgröße bestimmen
+    // Größe aus dem Bild auslesen
     const img = new Image();
     img.src = imgData;
     await new Promise<void>((resolve, reject) => {
