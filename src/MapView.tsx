@@ -509,67 +509,112 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenu(e.clientX, e.clientY, id);
   };
 
-  /* ---------- Export: Screenshot der echten Map (html-to-image) ---------- */
+  /* ---------- Export: Screenshot der Map (html-to-image) ---------- */
 
   const captureMapAsDataUrl = async (
     format: "jpeg" | "png"
   ): Promise<string> => {
     const el = wrapperRef.current;
-    if (!el) throw new Error("Map wrapper not found");
+    if (!el) {
+      throw new Error("Map wrapper not found");
+    }
 
-    const target =
-      (el.querySelector(".map-origin") as HTMLElement | null) ?? el;
+    // Wir capturen bewusst den gesamten sichtbaren Wrapper,
+    // damit Größe/BBox sauber sind.
+    const target = el as HTMLElement;
 
-    const pixelRatio = window.devicePixelRatio || 2;
+    const rect = target.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      throw new Error("Map has zero size – cannot export image");
+    }
+
+    // Begrenze Auflösung etwas, um riesige Canvas & Browserfehler zu vermeiden
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
     const backgroundColor = "#ffffff";
 
-    if (format === "jpeg") {
-      return await htmlToImage.toJpeg(target, {
-        quality: 0.95,
-        backgroundColor,
-        pixelRatio,
-      });
-    } else {
-      return await htmlToImage.toPng(target, {
-        backgroundColor,
-        pixelRatio,
-      });
+    try {
+      if (format === "jpeg") {
+        const dataUrl = await htmlToImage.toJpeg(target, {
+          quality: 0.95,
+          backgroundColor,
+          pixelRatio,
+          cacheBust: true,
+          useCORS: true,
+        });
+        if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+          throw new Error("Invalid JPEG data generated");
+        }
+        return dataUrl;
+      } else {
+        const dataUrl = await htmlToImage.toPng(target, {
+          backgroundColor,
+          pixelRatio,
+          cacheBust: true,
+          useCORS: true,
+        });
+        if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+          throw new Error("Invalid PNG data generated");
+        }
+        return dataUrl;
+      }
+    } catch (err) {
+      console.error("Map export failed:", err);
+      throw err instanceof Error
+        ? err
+        : new Error("Unknown error during map export");
     }
   };
 
   const doDownloadJPG = async () => {
-    const dataUrl = await captureMapAsDataUrl("jpeg");
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = buildImageFileName(projectTitle, "jpg");
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+      const dataUrl = await captureMapAsDataUrl("jpeg");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = buildImageFileName(projectTitle, "jpg");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      console.error("JPEG export failed:", err);
+      window.alert(
+        "Export as JPG failed. Please try again and check the console for details."
+      );
+    }
   };
 
   const doDownloadPDF = async () => {
-    const imgData = await captureMapAsDataUrl("png");
+    try {
+      const imgData = await captureMapAsDataUrl("png");
 
-    // Größe aus dem Bild auslesen
-    const img = new Image();
-    img.src = imgData;
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("Image load failed"));
-    });
+      const img = new Image();
+      img.src = imgData;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Image load failed"));
+      });
 
-    const width = img.naturalWidth || img.width;
-    const height = img.naturalHeight || img.height;
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
 
-    const pdf = new jsPDF({
-      orientation: width >= height ? "landscape" : "portrait",
-      unit: "px",
-      format: [width, height],
-      compress: true,
-    });
+      if (!width || !height) {
+        throw new Error("Exported image has zero width/height");
+      }
 
-    pdf.addImage(imgData, "PNG", 0, 0, width, height);
-    pdf.save(buildImageFileName(projectTitle, "pdf"));
+      const pdf = new jsPDF({
+        orientation: width >= height ? "landscape" : "portrait",
+        unit: "px",
+        format: [width, height],
+        compress: true,
+      });
+
+      pdf.addImage(imgData, "PNG", 0, 0, width, height);
+      pdf.save(buildImageFileName(projectTitle, "pdf"));
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      window.alert(
+        "Export as PDF failed. Please try again and check the console for details."
+      );
+    }
   };
 
   /* ---------- Ref-API ---------- */
