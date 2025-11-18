@@ -312,10 +312,12 @@ html, body { overflow: hidden; }
 /* ======= Done-Status (Map) ======= */
 
 .skill-node[data-done="true"] {
-  filter: grayscale(.7) brightness(.9);
-  opacity: .8;
-  box-shadow: 0 10px 28px rgba(0,0,0,.4);
+  background: #bfbfbf !important; /* deutlich grauer Hintergrund */
+  color: #f2f2f2 !important;       /* Text leicht heller lassen */
+  filter: grayscale(1) brightness(.85);
+  opacity: 1;
 }
+
 
 .done-badge {
   position: absolute;
