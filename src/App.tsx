@@ -538,9 +538,10 @@ function Row({
 
 
 
-  //
+  
+    //
   // ------------------------------------------------------------
-  // RETURN DER ROW-KOMPONENTE
+  // RETURN DER ROW-KOMPONENTE — korrigiert (Left+Right Click)
   // ------------------------------------------------------------
   //
   const isMarked = removeSelected.has(task.id);
@@ -565,36 +566,49 @@ function Row({
         }
         style={{ paddingLeft: depth * 28 }}
         data-task-id={task.id}
+
+        // -------------------------
+        // REMOVE-MODUS → NORMALER KLICK UND RECHTSKLICK
+        // -------------------------
+        onPointerDown={(e) => {
+          const target = e.target as HTMLElement;
+
+          if (removeMode) {
+            handleRemoveClick(e);   // linke UND rechte Maustaste
+            return;
+          }
+
+          // normaler Edit-Mode
+          if (target.closest(".task-input")) return;
+          if (e.pointerType === "mouse") startDrag(task.id);
+        }}
+
+        onClick={(e) => {
+          if (removeMode) {
+            handleRemoveClick(e);  // Sicherheit: toggelt per normalem Klick
+          }
+        }}
+
         onPointerEnter={() => {
           if (!removeMode && isDroppable(draggingId)) setHoverId(task.id);
         }}
         onPointerLeave={() => {
           if (hoverId === task.id) setHoverId(null);
         }}
-        onPointerDown={(e) => {
-          const target = e.target as HTMLElement;
-
-          if (removeMode) {
-            handleRemoveClick(e);
-            return;
-          }
-
-          if (target.closest(".task-input")) return;
-          if (e.pointerType === "mouse") startDrag(task.id);
-        }}
-        onClick={(e) => {
-          if (removeMode) {
-            handleRemoveClick(e);
-          }
-        }}
         onPointerUp={handlePointerUpAnywhere}
       >
         <span
           className="drag-handle left"
-          onPointerDown={handlePointerDownDragZone}
+          onPointerDown={(e) => {
+            if (removeMode) {
+              handleRemoveClick(e);
+              return;
+            }
+            handlePointerDownDragZone(e);
+          }}
         />
 
-        {/* BULLET – wird rot wenn Remove-Mode aktiv + markiert */}
+        {/* BULLET – rot im Remove-Modus */}
         <span
           className="task-bullet"
           style={{
@@ -602,7 +616,15 @@ function Row({
               ? (isMarked ? "#dc2626" : "#000000")
               : "#000000"
           }}
-          onPointerDown={removeMode ? handleRemoveClick : handlePointerDownDragZone}
+
+          // hier ebenfalls beide Maustasten erlaubt
+          onPointerDown={(e) => {
+            if (removeMode) {
+              handleRemoveClick(e);
+              return;
+            }
+            handlePointerDownDragZone(e);
+          }}
         />
 
         <input
@@ -618,7 +640,13 @@ function Row({
 
         <span
           className="drag-handle right"
-          onPointerDown={handlePointerDownDragZone}
+          onPointerDown={(e) => {
+            if (removeMode) {
+              handleRemoveClick(e);
+              return;
+            }
+            handlePointerDownDragZone(e);
+          }}
         />
       </div>
 
