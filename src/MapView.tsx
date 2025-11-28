@@ -1076,7 +1076,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   style={{
                     transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`,
                     background: rootColor,
-                    opacity: removeMode ? 0.5 : 1,
+                   
                   }}
                   data-done={rootDone ? "true" : "false"}
                   data-remove-mode={removeMode ? "true" : "false"}
