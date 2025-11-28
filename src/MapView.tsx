@@ -51,6 +51,11 @@ type MapViewProps = {
   // für Child-Einzelfarben + Done:
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
 
+  // Remove-Modus (nur Visualize)
+  removeMode: boolean;
+  removeSelection: Set<string>;
+  onToggleRemoveTarget: (id: string) => void;
+
   // aktiviert Pointer-/Wheel-Handling nur wenn sichtbar
   active?: boolean;
 };
@@ -202,6 +207,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     centerColor,
     setCenterColor,
     setTasks,
+    removeMode,
+    removeSelection,
+    onToggleRemoveTarget,
     active = true,
   } = props;
 
@@ -261,6 +269,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
+    // Im Remove-Modus keine Node-Bewegung
+    if (removeMode) return;
+
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -485,10 +496,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }>({ open: false, x: 0, y: 0, taskId: null });
 
   const openColorMenu = (clientX: number, clientY: number, taskId: string) => {
+    // Im Remove-Modus kein Farbdialog
+    if (removeMode) return;
     setCtxMenu({ open: true, x: clientX, y: clientY, taskId });
   };
   const closeColorMenu = () =>
     setCtxMenu({ open: false, x: 0, y: 0, taskId: null });
+
+  // Wenn Remove-Modus aktiviert wird, Kontextmenü schließen
+  useEffect(() => {
+    if (removeMode && ctxMenu.open) {
+      closeColorMenu();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [removeMode]);
 
   useEffect(() => {
     if (!ctxMenu.open) return;
@@ -572,6 +593,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
+    if (removeMode) return; // im Remove-Modus keine Farbe/Done
     openColorMenu(e.clientX, e.clientY, id);
   };
 
@@ -854,21 +876,46 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         return t?.parentId ? t.color ?? rootColor : rootColor;
       })();
 
+      const isSelectedForRemove =
+        removeMode && removeSelection.has(kid.id);
+
       nodes.push(
         <div
           key={`node-${parentId}-${kid.id}`}
-          className="skill-node child-node"
+          className={
+            "skill-node child-node" +
+            (removeMode ? " node-remove-mode" : "") +
+            (isSelectedForRemove ? " node-remove-selected" : "")
+          }
           style={{
             transform: `translate(${cx}px, ${cy}px) translate(-50%, -50%)`,
             background: nColor,
+            opacity: removeMode ? 0.5 : 1,
           }}
           data-done={isDone ? "true" : "false"}
-          onPointerDown={(e) => startNodeDrag(kid.id, e)}
+          data-remove-mode={removeMode ? "true" : "false"}
+          data-remove-selected={isSelectedForRemove ? "true" : "false"}
+          onPointerDown={(e) => {
+            if (removeMode) {
+              e.stopPropagation();
+              e.preventDefault();
+              onToggleRemoveTarget(kid.id);
+              return;
+            }
+            startNodeDrag(kid.id, e);
+          }}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={
             document.documentElement.lang || navigator.language || "en"
           }
         >
+          {removeMode && (
+            <div className="remove-checkbox" aria-hidden="true">
+              {isSelectedForRemove && (
+                <div className="remove-checkbox-mark">✓</div>
+              )}
+            </div>
+          )}
           {isDone && (
             <div className="done-badge" aria-hidden="true">
               <span className="done-badge-check">✓</span>
@@ -897,7 +944,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   /* ---------- JSX ---------- */
   return (
     <div
-      className="skillmap-wrapper"
+      className={
+        "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
+      }
       ref={wrapperRef}
       style={{ touchAction: "none" }}
       onPointerDown={onPointerDownMap}
@@ -978,6 +1027,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              if (removeMode) return;
               openColorMenu(e.clientX, e.clientY, CENTER_ID);
             }}
             lang={
@@ -1011,16 +1061,36 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             const rootDone =
               explicitRootDone !== undefined ? explicitRootDone : centerDone;
 
+            const isRootSelectedForRemove =
+              removeMode && removeSelection.has(root.id);
+
             return (
               <React.Fragment key={`root-node-${root.id}`}>
                 <div
-                  className="skill-node root-node"
+                  className={
+                    "skill-node root-node" +
+                    (removeMode ? " node-remove-mode" : "") +
+                    (isRootSelectedForRemove ? " node-remove-selected" : "")
+                  }
                   style={{
                     transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`,
                     background: rootColor,
+                    opacity: removeMode ? 0.5 : 1,
                   }}
                   data-done={rootDone ? "true" : "false"}
-                  onPointerDown={(e) => startNodeDrag(root.id, e)}
+                  data-remove-mode={removeMode ? "true" : "false"}
+                  data-remove-selected={
+                    isRootSelectedForRemove ? "true" : "false"
+                  }
+                  onPointerDown={(e) => {
+                    if (removeMode) {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onToggleRemoveTarget(root.id);
+                      return;
+                    }
+                    startNodeDrag(root.id, e);
+                  }}
                   onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                   lang={
                     document.documentElement.lang ||
@@ -1028,15 +1098,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     "en"
                   }
                 >
+                  {removeMode && (
+                    <div className="remove-checkbox" aria-hidden="true">
+                      {isRootSelectedForRemove && (
+                        <div className="remove-checkbox-mark">✓</div>
+                      )}
+                    </div>
+                  )}
                   {rootDone && (
                     <div className="done-badge" aria-hidden="true">
                       <span className="done-badge-check">✓</span>
                     </div>
                   )}
-                  {renderTitleAsSpans(
-                    root.title,
-                    MAXLEN_ROOT_AND_CHILD
-                  )}
+                  {renderTitleAsSpans(root.title, MAXLEN_ROOT_AND_CHILD)}
                 </div>
                 {renderChildNodesWithOffsets(
                   root.id,
@@ -1070,7 +1144,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       )}
 
       {/* Kontextmenü */}
-      {ctxMenu.open && ctxMenu.taskId && (
+      {ctxMenu.open && ctxMenu.taskId && !removeMode && (
         <div
           className="ctxmenu"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
