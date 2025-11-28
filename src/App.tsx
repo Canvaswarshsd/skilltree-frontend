@@ -93,7 +93,7 @@ export default function App() {
   >({});
   const [centerColor, setCenterColor] = useState<string>("#020617");
 
-  // Remove-Modus (nur Visualize)
+  // Remove-Modus (Map & Edit)
   const [removeMode, setRemoveMode] = useState(false);
   const [removeTargets, setRemoveTargets] = useState<Set<string>>(
     () => new Set()
@@ -104,7 +104,7 @@ export default function App() {
     [tasks]
   );
 
-  // Edit: Add/Rename/Remove (bestehende Logik)
+  // Edit: Add/Rename
   const addTask = () =>
     setTasks((prev) => [
       ...prev,
@@ -132,15 +132,19 @@ export default function App() {
     return out;
   };
 
-  // Alte Remove-Logik (nur für Edit)
+  // Alte Remove-Logik (nur für Edit) – bleibt erhalten, wird aber nicht mehr aktiv verwendet.
   const removeLastTask = () => {
     if (!tasks.length) return;
     const lastTask = tasks[tasks.length - 1];
     const toRemove = collectSubtreeIds(tasks, lastTask.id);
     setTasks((prev) => prev.filter((t) => !toRemove.has(t.id)));
   };
+  // Dummy-Referenz, damit TypeScript bei strengen Einstellungen nicht meckert
+  if (false) {
+    removeLastTask();
+  }
 
-  // --- NEU: Remove-Button verhält sich je nach View unterschiedlich ---
+  // --- Remove-Modus (gemeinsam für Edit & Map) ---
   const clearRemoveMode = () => {
     setRemoveMode(false);
     setRemoveTargets(new Set());
@@ -156,33 +160,25 @@ export default function App() {
   };
 
   const handleRemoveClick = () => {
-    // In der Edit-Ansicht bleibt das alte Verhalten:
-    if (view === "edit") {
-      removeLastTask();
-      return;
-    }
-
-    // In der Map-Ansicht: echter Remove-Modus
+    // 1. Noch nicht im Remove-Modus → Modus einschalten + Auswahl leeren
     if (!removeMode) {
-      // Modus aktivieren, Auswahl leeren
       setRemoveMode(true);
       setRemoveTargets(new Set());
       return;
     }
 
-    // Remove-Modus ist aktiv → bei zweitem Klick löschen wir (falls etwas ausgewählt wurde)
+    // 2. Remove-Modus aktiv, aber nichts ausgewählt → Modus einfach beenden
     if (removeTargets.size === 0) {
-      // nichts ausgewählt → Modus einfach beenden
       clearRemoveMode();
       return;
     }
 
+    // 3. Remove-Modus aktiv + Auswahl vorhanden → ausgewählte Tasks (inkl. Kinder) löschen
     setTasks((prev) => {
       if (prev.length === 0) return prev;
 
       const idsToDelete = new Set<string>();
 
-      // Für jede markierte Task den ganzen Subtree sammeln
       removeTargets.forEach((id) => {
         const subtree = collectSubtreeIds(prev, id);
         subtree.forEach((tid) => idsToDelete.add(tid));
@@ -207,7 +203,7 @@ export default function App() {
     setView("map");
   };
 
-  // Edit: DnD in Liste (gleiches Verhalten wie vorher)
+  // Edit: DnD in Liste (gleiches Verhalten wie vorher, aber nicht im Remove-Modus)
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
@@ -223,6 +219,8 @@ export default function App() {
   const LONGPRESS_MS = 300;
 
   function startDrag(id: string) {
+    // Im Remove-Modus keine Drag-Aktion
+    if (removeMode) return;
     draggingRef.current = id;
     setDraggingId(id);
     setHoverId(null);
@@ -285,6 +283,8 @@ export default function App() {
   useEffect(() => {
     const onDocPointerMoveEdit = (e: PointerEvent) => {
       if (view !== "edit") return;
+      if (removeMode) return; // im Remove-Modus kein Drag-Start
+
       if (
         editGesture.current &&
         e.pointerId === editGesture.current.pointerId &&
@@ -314,7 +314,7 @@ export default function App() {
     });
     return () =>
       window.removeEventListener("pointermove", onDocPointerMoveEdit);
-  }, [view]);
+  }, [view, removeMode]);
 
   // Save / Open
   const [saveOpen, setSaveOpen] = useState(false);
@@ -480,7 +480,7 @@ export default function App() {
 
   const mapRef = useRef<MapApi>(null);
 
-  const isRemoveModeActive = view === "map" && removeMode;
+  const isRemoveModeActive = removeMode;
 
   return (
     <div className="app">
@@ -502,11 +502,9 @@ export default function App() {
             }
             onClick={handleRemoveClick}
             title={
-              view === "edit"
-                ? "Remove last task (and its children)"
-                : isRemoveModeActive
-                ? "Finish remove mode and delete selected tasks"
-                : "Enter remove mode (select tasks to delete)"
+              !isRemoveModeActive
+                ? "Enter remove mode (click tasks to select them)"
+                : "Delete selected tasks and exit remove mode"
             }
           >
             Remove Task
@@ -621,6 +619,9 @@ export default function App() {
                 renameTask={renameTask}
                 editGesture={editGesture}
                 LONGPRESS_MS={LONGPRESS_MS}
+                removeMode={removeMode}
+                removeTargets={removeTargets}
+                onToggleRemoveTarget={toggleRemoveTarget}
               />
             ))}
           </div>
@@ -641,7 +642,7 @@ export default function App() {
             setBranchColorOverride={setBranchColorOverride}
             centerColor={centerColor}
             setCenterColor={setCenterColor}
-            // NEU: Remove-Modus für Visualize
+            // Remove-Modus für Visualize
             removeMode={removeMode}
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
@@ -663,6 +664,9 @@ function Row({
   renameTask,
   editGesture,
   LONGPRESS_MS,
+  removeMode,
+  removeTargets,
+  onToggleRemoveTarget,
 }: {
   task: Task;
   depth: number;
@@ -681,10 +685,18 @@ function Row({
     taskId: string;
   } | null>;
   LONGPRESS_MS: number;
+  removeMode: boolean;
+  removeTargets: Set<string>;
+  onToggleRemoveTarget: (id: string) => void;
 }) {
   const children = tasks.filter((t) => t.parentId === task.id);
   const isDroppable = (srcId: string | null) =>
     !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
+
+  const isSelectedForRemove =
+    removeMode && removeTargets.has(task.id);
+
+  const canDrop = !removeMode && isDroppable(draggingId);
 
   const longPressTimer = useRef<number | null>(null);
   const clearTimer = () => {
@@ -695,6 +707,8 @@ function Row({
   };
 
   const handlePointerDownDragZone = (e: React.PointerEvent) => {
+    if (removeMode) return; // im Remove-Modus kein Drag
+
     const rowEl = (e.currentTarget as HTMLElement)
       .parentElement as HTMLElement;
     const id = rowEl.dataset.taskId!;
@@ -727,25 +741,55 @@ function Row({
     }
   };
 
+  const handleRowPointerDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+
+    if (removeMode) {
+      // Im Remove-Modus: Klick toggelt nur Auswahl
+      e.preventDefault();
+      e.stopPropagation();
+      onToggleRemoveTarget(task.id);
+      return;
+    }
+
+    if (target.closest(".task-input")) return;
+    if (e.pointerType === "mouse") startDrag(task.id);
+  };
+
+  const rowStyle: React.CSSProperties = {
+    paddingLeft: depth * 28,
+    ...(isSelectedForRemove
+      ? {
+          background: "#ef4444",
+          borderColor: "#fecaca",
+          boxShadow: "0 0 0 1px rgba(248,113,113,0.4)",
+        }
+      : {}),
+  };
+
+  const inputStyle: React.CSSProperties = removeMode
+    ? { pointerEvents: "none" }
+    : {};
+
+  const inputReadOnly = removeMode;
+
   return (
     <>
       <div
         className={`task-row ${
-          isDroppable(draggingId) && hoverId === task.id ? "drop-hover" : ""
-        } ${draggingId === task.id ? "dragging-row" : ""}`}
-        style={{ paddingLeft: depth * 28 }}
+          canDrop && hoverId === task.id ? "drop-hover" : ""
+        } ${draggingId === task.id ? "dragging-row" : ""} ${
+          removeMode ? "task-row-remove-mode" : ""
+        } ${isSelectedForRemove ? "task-row-remove-selected" : ""}`}
+        style={rowStyle}
         data-task-id={task.id}
         onPointerEnter={() => {
-          if (isDroppable(draggingId)) setHoverId(task.id);
+          if (canDrop) setHoverId(task.id);
         }}
         onPointerLeave={() => {
           if (hoverId === task.id) setHoverId(null);
         }}
-        onPointerDown={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest(".task-input")) return;
-          if (e.pointerType === "mouse") startDrag(task.id);
-        }}
+        onPointerDown={handleRowPointerDown}
         onPointerUp={handlePointerUpAnywhere}
       >
         <span
@@ -759,9 +803,11 @@ function Row({
         />
         <input
           className="task-input"
+          style={inputStyle}
           value={task.title}
           onChange={(e) => renameTask(task.id, e.target.value)}
           placeholder="Task title…"
+          readOnly={inputReadOnly}
         />
         {task.parentId && <span className="task-parent-label">child</span>}
         <span
@@ -783,6 +829,9 @@ function Row({
           renameTask={renameTask}
           editGesture={editGesture}
           LONGPRESS_MS={LONGPRESS_MS}
+          removeMode={removeMode}
+          removeTargets={removeTargets}
+          onToggleRemoveTarget={onToggleRemoveTarget}
         />
       ))}
     </>
