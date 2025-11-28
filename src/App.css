@@ -386,9 +386,19 @@ html, body { overflow: hidden; }
 /* ======= Done-Status (Map) ======= */
 
 .skill-node[data-done="true"] {
-  filter: grayscale(.28) brightness(.98);
-  opacity: .92;
+  /* kein filter/opacity mehr – Schatten bleibt */
   box-shadow: 0 10px 28px rgba(0,0,0,.4);
+  position: relative; /* für das Overlay ::before */
+}
+
+.skill-node[data-done="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(248,250,252,.78); /* helles Grau über der Kreisfläche */
+  box-shadow: inset 0 0 0 1px rgba(148,163,184,.55);
+  pointer-events: none;
 }
 
 .done-badge {
