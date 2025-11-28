@@ -1102,7 +1102,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   {removeMode && (
                     <div className="remove-checkbox" aria-hidden="true">
                       {isRootSelectedForRemove && (
-                        <div className="remove-checkbox-mark">✓</div>
+                        <div className="remove-checkbox-mark">✕</div>
                       )}
                     </div>
                   )}
