@@ -443,6 +443,31 @@ html, body { overflow: hidden; }
   border-color: #38bdf8;
 }
 
+/* ======= Remove-Status (Map) – kleines rotes Kreuz links oben ======= */
+
+.remove-checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(4,7,15,.8), 0 4px 8px rgba(0,0,0,.45);
+  pointer-events: none; /* nur der Kreis selbst soll nicht blocken */
+}
+
+.remove-checkbox-mark {
+  font-size: 11px;
+  line-height: 1;
+  color: #fee2e2;
+  pointer-events: none;
+}
+
+
 /* ======= Progress HUD (rechts gegenüber vom Center-Button) ======= */
 
 .map-progress {
