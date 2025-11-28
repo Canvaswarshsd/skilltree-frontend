@@ -208,6 +208,17 @@ html, body { overflow: hidden; }
   border-color: #38bdf8;
   box-shadow: 0 0 0 2px rgba(56,189,248,.25) inset;
 }
+/* Remove-Mode in der Edit-Ansicht */
+.task-row-remove-mode {
+  cursor: pointer;
+}
+
+.task-row-remove-selected {
+  background: rgba(239, 68, 68, 0.9);          /* kräftiges Rot */
+  border-color: rgba(248, 250, 252, 0.9);
+  box-shadow: 0 0 0 1px rgba(248, 250, 252, 0.7) inset;
+}
+
 
 /* Drag-Handles für Mobile */
 .drag-handle {
