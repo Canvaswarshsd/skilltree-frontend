@@ -108,7 +108,7 @@ const CENTER_ID = "__CENTER__";
 /* Einheitliche Textbreiten:
    - CENTER: größer
    - ROOT & CHILD: gleich, damit identischer Umbruch */
-const MAXLEN_CENTER = 18;
+const MAXLEN_CENTER = 12;
 const MAXLEN_ROOT_AND_CHILD = 12;
 
 /* ---------- Geometrie-Helper ---------- */
