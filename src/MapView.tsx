@@ -134,7 +134,6 @@ const COLOR_SWATCHES = [
   "#020617",
 ];
 
-
 const R_CENTER = 75;
 const R_ROOT = 60;
 const R_CHILD = 50;
@@ -300,7 +299,77 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const progressPercent =
     totalTasks === 0 ? 0 : Math.round((doneCount / totalTasks) * 100);
 
-  /* ---------- Node-Drag ---------- */
+  /* ---------- Long-Press für Touch (Nodes & Edges) ---------- */
+
+  const touchLongPressTimer = useRef<number | null>(null);
+  const touchLongPressTarget = useRef<
+    | {
+        kind: "node";
+        nodeId: string;
+        clientX: number;
+        clientY: number;
+      }
+    | {
+        kind: "edge";
+        parentId: string;
+        childId: string;
+        clientX: number;
+        clientY: number;
+      }
+    | null
+  >(null);
+
+  const clearTouchLongPress = () => {
+    if (touchLongPressTimer.current !== null) {
+      window.clearTimeout(touchLongPressTimer.current);
+      touchLongPressTimer.current = null;
+    }
+    touchLongPressTarget.current = null;
+  };
+
+  const startTouchLongPressForNode = (
+    nodeId: string,
+    clientX: number,
+    clientY: number
+  ) => {
+    clearTouchLongPress();
+    touchLongPressTarget.current = {
+      kind: "node",
+      nodeId,
+      clientX,
+      clientY,
+    };
+    touchLongPressTimer.current = window.setTimeout(() => {
+      const t = touchLongPressTarget.current;
+      if (!t || t.kind !== "node") return;
+      openColorMenuForNode(t.clientX, t.clientY, t.nodeId);
+      clearTouchLongPress();
+    }, 450);
+  };
+
+  const startTouchLongPressForEdge = (
+    parentId: string,
+    childId: string,
+    clientX: number,
+    clientY: number
+  ) => {
+    clearTouchLongPress();
+    touchLongPressTarget.current = {
+      kind: "edge",
+      parentId,
+      childId,
+      clientX,
+      clientY,
+    };
+    touchLongPressTimer.current = window.setTimeout(() => {
+      const t = touchLongPressTarget.current;
+      if (!t || t.kind !== "edge") return;
+      openColorMenuForEdge(t.clientX, t.clientY, t.parentId, t.childId);
+      clearTouchLongPress();
+    }, 450);
+  };
+
+  /* ---------- Node-Drag (Desktop / Maus) ---------- */
   const vDrag = useRef<{
     id: string;
     startClient: { x: number; y: number };
@@ -386,6 +455,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const onPointerDownMap = (e: React.PointerEvent) => {
     if (!active) return;
+    clearTouchLongPress();
     if (nodeDragging.current) return;
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -437,6 +507,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   };
 
   const onPointerUpMap = (e: React.PointerEvent) => {
+    clearTouchLongPress();
     activePointers.current.delete(e.pointerId);
     if (activePointers.current.size < 2) {
       pinching.current = false;
@@ -897,6 +968,21 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           strokeLinecap="round"
           style={{ pointerEvents: "stroke" }}
           onContextMenu={(e) => onEdgeContextMenu(e, parentId, childId)}
+          onPointerDown={(e) => {
+            if (e.pointerType === "touch") {
+              if (removeMode) return;
+              e.stopPropagation();
+              e.preventDefault();
+              startTouchLongPressForEdge(
+                parentId,
+                childId,
+                e.clientX,
+                e.clientY
+              );
+            }
+          }}
+          onPointerUp={clearTouchLongPress}
+          onPointerCancel={clearTouchLongPress}
         />
         <line
           x1={x1}
@@ -1037,8 +1123,16 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               onToggleRemoveTarget(kid.id);
               return;
             }
+            if (e.pointerType === "touch") {
+              e.stopPropagation();
+              e.preventDefault();
+              startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
+              return;
+            }
             startNodeDrag(kid.id, e);
           }}
+          onPointerUp={clearTouchLongPress}
+          onPointerCancel={clearTouchLongPress}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={
             document.documentElement.lang || navigator.language || "en"
@@ -1083,7 +1177,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
       }
       ref={wrapperRef}
-      style={{ touchAction: "none" }}
+      style={{
+        touchAction: "none",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
       onPointerDown={onPointerDownMap}
       onPointerMove={onPointerMoveMap}
       onPointerUp={onPointerUpMap}
@@ -1174,6 +1272,16 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               if (removeMode) return;
               openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
             }}
+            onPointerDown={(e) => {
+              if (removeMode) return;
+              if (e.pointerType === "touch") {
+                e.stopPropagation();
+                e.preventDefault();
+                startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
+              }
+            }}
+            onPointerUp={clearTouchLongPress}
+            onPointerCancel={clearTouchLongPress}
             lang={
               document.documentElement.lang || navigator.language || "en"
             }
@@ -1233,8 +1341,16 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                       onToggleRemoveTarget(root.id);
                       return;
                     }
+                    if (e.pointerType === "touch") {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      startTouchLongPressForNode(root.id, e.clientX, e.clientY);
+                      return;
+                    }
                     startNodeDrag(root.id, e);
                   }}
+                  onPointerUp={clearTouchLongPress}
+                  onPointerCancel={clearTouchLongPress}
                   onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                   lang={
                     document.documentElement.lang ||
