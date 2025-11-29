@@ -149,6 +149,10 @@ const CENTER_ID = "__CENTER__";
 const MAXLEN_CENTER = 12;
 const MAXLEN_ROOT_AND_CHILD = 12;
 
+/* Long-Press-Einstellungen für Touch */
+const TOUCH_LONGPRESS_DELAY_MS = 450;
+const TOUCH_LONGPRESS_MOVE_CANCEL_PX = 12;
+
 /* ---------- Geometrie ---------- */
 function segmentBetweenCircles(
   c1x: number,
@@ -344,7 +348,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       if (!t || t.kind !== "node") return;
       openColorMenuForNode(t.clientX, t.clientY, t.nodeId);
       clearTouchLongPress();
-    }, 450);
+    }, TOUCH_LONGPRESS_DELAY_MS);
   };
 
   const startTouchLongPressForEdge = (
@@ -366,10 +370,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       if (!t || t.kind !== "edge") return;
       openColorMenuForEdge(t.clientX, t.clientY, t.parentId, t.childId);
       clearTouchLongPress();
-    }, 450);
+    }, TOUCH_LONGPRESS_DELAY_MS);
   };
 
-  /* ---------- Node-Drag (Desktop / Maus) ---------- */
+  /* ---------- Node-Drag (Desktop / Maus + Touch) ---------- */
   const vDrag = useRef<{
     id: string;
     startClient: { x: number; y: number };
@@ -391,6 +395,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     document.documentElement.classList.add("dragging-global");
   }
   function onNodePointerMove(e: PointerEvent) {
+    // Wenn wir uns beim Touch deutlich bewegen, Long-Press abbrechen
+    if (
+      e.pointerType === "touch" &&
+      touchLongPressTimer.current !== null &&
+      touchLongPressTarget.current
+    ) {
+      const t = touchLongPressTarget.current;
+      const dx0 = e.clientX - t.clientX;
+      const dy0 = e.clientY - t.clientY;
+      if (Math.hypot(dx0, dy0) > TOUCH_LONGPRESS_MOVE_CANCEL_PX) {
+        clearTouchLongPress();
+      }
+    }
+
     const d = vDrag.current;
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
@@ -477,6 +495,21 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const onPointerMoveMap = (e: React.PointerEvent) => {
     if (!active) return;
+
+    // auch hier: wenn beim Touch weit bewegt wird, Long-Press abbrechen
+    if (
+      e.pointerType === "touch" &&
+      touchLongPressTimer.current !== null &&
+      touchLongPressTarget.current
+    ) {
+      const t = touchLongPressTarget.current;
+      const dx0 = e.clientX - t.clientX;
+      const dy0 = e.clientY - t.clientY;
+      if (Math.hypot(dx0, dy0) > TOUCH_LONGPRESS_MOVE_CANCEL_PX) {
+        clearTouchLongPress();
+      }
+    }
+
     const pt = activePointers.current.get(e.pointerId);
     if (pt)
       activePointers.current.set(e.pointerId, {
@@ -981,8 +1014,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               );
             }
           }}
-          onPointerUp={clearTouchLongPress}
-          onPointerCancel={clearTouchLongPress}
+          onPointerUp={() => clearTouchLongPress()}
+          onPointerCancel={() => clearTouchLongPress()}
         />
         <line
           x1={x1}
@@ -1134,8 +1167,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             // Maus: direkt Drag
             startNodeDrag(kid.id, e);
           }}
-          onPointerUp={clearTouchLongPress}
-          onPointerCancel={clearTouchLongPress}
+          onPointerUp={() => clearTouchLongPress()}
+          onPointerCancel={() => clearTouchLongPress()}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={
             document.documentElement.lang || navigator.language || "en"
@@ -1283,8 +1316,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
               }
             }}
-            onPointerUp={clearTouchLongPress}
-            onPointerCancel={clearTouchLongPress}
+            onPointerUp={() => clearTouchLongPress()}
+            onPointerCancel={() => clearTouchLongPress()}
             lang={
               document.documentElement.lang || navigator.language || "en"
             }
@@ -1355,8 +1388,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     // Maus
                     startNodeDrag(root.id, e);
                   }}
-                  onPointerUp={clearTouchLongPress}
-                  onPointerCancel={clearTouchLongPress}
+                  onPointerUp={() => clearTouchLongPress()}
+                  onPointerCancel={() => clearTouchLongPress()}
                   onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                   lang={
                     document.documentElement.lang ||
