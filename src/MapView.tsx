@@ -191,6 +191,10 @@ function splitTitleLines(
   return lines.slice(0, maxLines);
 }
 
+/* Edge-Key für einzelne Verbindungsstriche */
+const edgeKey = (parentId: string, childId: string) =>
+  `${parentId}__${childId}`;
+
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const {
@@ -217,6 +221,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   // Done-Status für das Projekt (Zentrum) – vererbt sich wie eine Wurzel nach unten
   const [centerDone, setCenterDone] = useState<boolean>(false);
+
+  // Farben für einzelne Verbindungsstriche (Edge-Overrides)
+  const [edgeColorOverride, setEdgeColorOverride] = useState<
+    Record<string, string>
+  >({});
 
   // Derive helpers
   const roots = useMemo(
@@ -487,21 +496,65 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [scale, active]);
 
-  /* ---------- Kontextmenü: Farbe + Done ---------- */
+  /* ---------- Kontextmenü: Farbe + Done / Edge ---------- */
   const [ctxMenu, setCtxMenu] = useState<{
     open: boolean;
     x: number;
     y: number;
-    taskId: string | null;
-  }>({ open: false, x: 0, y: 0, taskId: null });
+    kind: "node" | "edge";
+    nodeId: string | null;
+    edgeParentId: string | null;
+    edgeChildId: string | null;
+  }>({
+    open: false,
+    x: 0,
+    y: 0,
+    kind: "node",
+    nodeId: null,
+    edgeParentId: null,
+    edgeChildId: null,
+  });
 
-  const openColorMenu = (clientX: number, clientY: number, taskId: string) => {
-    // Im Remove-Modus kein Farbdialog
+  const openColorMenuForNode = (
+    clientX: number,
+    clientY: number,
+    taskId: string
+  ) => {
     if (removeMode) return;
-    setCtxMenu({ open: true, x: clientX, y: clientY, taskId });
+    setCtxMenu({
+      open: true,
+      x: clientX,
+      y: clientY,
+      kind: "node",
+      nodeId: taskId,
+      edgeParentId: null,
+      edgeChildId: null,
+    });
   };
+
+  const openColorMenuForEdge = (
+    clientX: number,
+    clientY: number,
+    parentId: string,
+    childId: string
+  ) => {
+    if (removeMode) return;
+    setCtxMenu({
+      open: true,
+      x: clientX,
+      y: clientY,
+      kind: "edge",
+      nodeId: null,
+      edgeParentId: parentId,
+      edgeChildId: childId,
+    });
+  };
+
   const closeColorMenu = () =>
-    setCtxMenu({ open: false, x: 0, y: 0, taskId: null });
+    setCtxMenu((prev) => ({
+      ...prev,
+      open: false,
+    }));
 
   // Wenn Remove-Modus aktiviert wird, Kontextmenü schließen
   useEffect(() => {
@@ -534,40 +587,70 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }, [ctxMenu.open]);
 
   const applyColor = (hex: string) => {
-    if (!ctxMenu.taskId) return;
+    if (!ctxMenu.open) return;
 
-    if (ctxMenu.taskId === CENTER_ID) {
-      setCenterColor(hex);
+    if (ctxMenu.kind === "node") {
+      if (!ctxMenu.nodeId) return;
+
+      if (ctxMenu.nodeId === CENTER_ID) {
+        setCenterColor(hex);
+        closeColorMenu();
+        return;
+      }
+      const t = getTask(ctxMenu.nodeId);
+      if (!t) {
+        closeColorMenu();
+        return;
+      }
+      if (t.parentId === null) {
+        // Root-Farbe (Linien + Root-Kreis)
+        setBranchColorOverride((prev) => ({ ...prev, [t.id]: hex }));
+      } else {
+        // Child: nur dieser Node
+        setTasks((prev) =>
+          prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x))
+        );
+      }
       closeColorMenu();
       return;
     }
-    const t = getTask(ctxMenu.taskId);
-    if (!t) {
+
+    if (ctxMenu.kind === "edge") {
+      const parentId = ctxMenu.edgeParentId;
+      const childId = ctxMenu.edgeChildId;
+      if (!parentId || !childId) {
+        closeColorMenu();
+        return;
+      }
+
+      // Center → Root: wie Branch-Farbe behandeln
+      if (parentId === CENTER_ID) {
+        setBranchColorOverride((prev) => ({ ...prev, [childId]: hex }));
+        setEdgeColorOverride((prev) => {
+          const copy = { ...prev };
+          delete copy[edgeKey(parentId, childId)];
+          return copy;
+        });
+      } else {
+        const key = edgeKey(parentId, childId);
+        setEdgeColorOverride((prev) => ({ ...prev, [key]: hex }));
+      }
+
       closeColorMenu();
-      return;
     }
-    if (t.parentId === null) {
-      // Root-Farbe (Linien + Root-Kreis)
-      setBranchColorOverride((prev) => ({ ...prev, [t.id]: hex }));
-    } else {
-      // Child: nur dieser Node
-      setTasks((prev) =>
-        prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x))
-      );
-    }
-    closeColorMenu();
   };
 
   const toggleDone = () => {
-    if (!ctxMenu.taskId) return;
+    if (!ctxMenu.open || ctxMenu.kind !== "node") return;
+    if (!ctxMenu.nodeId) return;
 
     // Projekt-Kreis (Center) toggeln: wirkt als globale "Root"-Vererbung
-    if (ctxMenu.taskId === CENTER_ID) {
+    if (ctxMenu.nodeId === CENTER_ID) {
       setCenterDone((prev) => !prev);
       return;
     }
 
-    const id = ctxMenu.taskId;
+    const id = ctxMenu.nodeId;
     const t = getTask(id);
     if (!t) return;
 
@@ -594,7 +677,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     e.preventDefault();
     e.stopPropagation();
     if (removeMode) return; // im Remove-Modus keine Farbe/Done
-    openColorMenu(e.clientX, e.clientY, id);
+    openColorMenuForNode(e.clientX, e.clientY, id);
+  };
+
+  const onEdgeContextMenu = (
+    e: React.MouseEvent<SVGLineElement, MouseEvent>,
+    parentId: string,
+    childId: string
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (removeMode) return;
+    openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
   };
 
   /* ---------- Export: Screenshot der Map (mit leichtem Auto-Zoom) ---------- */
@@ -795,6 +889,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         cy,
         R_CHILD
       );
+
+      const edgeId = edgeKey(parentId, kid.id);
+      const lineColor = edgeColorOverride[edgeId] ?? rootColor;
+
       lines.push(
         <line
           key={`line-${parentId}-${kid.id}`}
@@ -802,9 +900,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           y1={y1}
           x2={x2}
           y2={y2}
-          stroke={rootColor}
+          stroke={lineColor}
           strokeWidth="3"
           strokeLinecap="round"
+          onContextMenu={(e) => onEdgeContextMenu(e, parentId, kid.id)}
         />
       );
 
@@ -890,7 +989,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           style={{
             transform: `translate(${cx}px, ${cy}px) translate(-50%, -50%)`,
             background: nColor,
-            
           }}
           data-done={isDone ? "true" : "false"}
           data-remove-mode={removeMode ? "true" : "false"}
@@ -912,9 +1010,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           {removeMode && (
             <div className="remove-checkbox" aria-hidden="true">
               {isSelectedForRemove && (
-  <div className="remove-checkbox-mark">✕</div>
-)}
-
+                <div className="remove-checkbox-mark">✕</div>
+              )}
             </div>
           )}
           {isDone && (
@@ -981,9 +1078,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 ry,
                 R_ROOT
               );
-              const color =
+              const baseColor =
                 branchColorOverride[root.id] ??
                 BRANCH_COLORS[i % BRANCH_COLORS.length];
+              const edgeId = edgeKey(CENTER_ID, root.id);
+              const lineColor = edgeColorOverride[edgeId] ?? baseColor;
               return (
                 <line
                   key={`root-line-${root.id}`}
@@ -991,9 +1090,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   y1={y1}
                   x2={x2}
                   y2={y2}
-                  stroke={color}
+                  stroke={lineColor}
                   strokeWidth="3"
                   strokeLinecap="round"
+                  onContextMenu={(e) =>
+                    onEdgeContextMenu(e, CENTER_ID, root.id)
+                  }
                 />
               );
             })}
@@ -1029,7 +1131,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               e.preventDefault();
               e.stopPropagation();
               if (removeMode) return;
-              openColorMenu(e.clientX, e.clientY, CENTER_ID);
+              openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
             }}
             lang={
               document.documentElement.lang || navigator.language || "en"
@@ -1076,7 +1178,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   style={{
                     transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`,
                     background: rootColor,
-                   
                   }}
                   data-done={rootDone ? "true" : "false"}
                   data-remove-mode={removeMode ? "true" : "false"}
@@ -1145,7 +1246,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       )}
 
       {/* Kontextmenü */}
-      {ctxMenu.open && ctxMenu.taskId && !removeMode && (
+      {ctxMenu.open && !removeMode && (
         <div
           className="ctxmenu"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
@@ -1156,19 +1257,21 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         >
           <div className="ctxmenu-header">
             <div className="ctxmenu-title">Color</div>
-            <button
-              className={
-                "ctxmenu-doneBtn" +
-                ((ctxMenu.taskId === CENTER_ID
-                  ? centerDone
-                  : computeEffectiveDoneForTaskId(ctxMenu.taskId))
-                  ? " ctxmenu-doneBtn-active"
-                  : "")
-              }
-              onClick={toggleDone}
-            >
-              Done
-            </button>
+            {ctxMenu.kind === "node" && ctxMenu.nodeId && (
+              <button
+                className={
+                  "ctxmenu-doneBtn" +
+                  ((ctxMenu.nodeId === CENTER_ID
+                    ? centerDone
+                    : computeEffectiveDoneForTaskId(ctxMenu.nodeId))
+                    ? " ctxmenu-doneBtn-active"
+                    : "")
+                }
+                onClick={toggleDone}
+              >
+                Done
+              </button>
+            )}
           </div>
           <div className="ctxmenu-swatches">
             {COLOR_SWATCHES.map((hex) => (
