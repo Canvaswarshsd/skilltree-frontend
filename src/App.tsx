@@ -476,6 +476,12 @@ export default function App() {
             className="project-input"
             value={projectTitle}
             onChange={(e) => setProjectTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
             placeholder="Project title..."
           />
           <button className="btn" onClick={addTask}>
