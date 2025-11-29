@@ -468,6 +468,14 @@ export default function App() {
 
   const isRemoveModeActive = removeMode;
 
+  // Helper: aktives Input (z.B. Projekt-Titel) „loslassen“
+  const blurActiveInput = () => {
+    const active = document.activeElement as HTMLElement | null;
+    if (active && active.tagName === "INPUT") {
+      (active as HTMLInputElement).blur();
+    }
+  };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -482,9 +490,16 @@ export default function App() {
                 (e.target as HTMLInputElement).blur();
               }
             }}
+            enterKeyHint="done"
             placeholder="Project title..."
           />
-          <button className="btn" onClick={addTask}>
+          <button
+            className="btn"
+            onClick={() => {
+              blurActiveInput();
+              addTask();
+            }}
+          >
             Add Task
           </button>
           <button
@@ -492,7 +507,10 @@ export default function App() {
               "btn btn-remove" +
               (isRemoveModeActive ? " btn-remove-active" : "")
             }
-            onClick={handleRemoveClick}
+            onClick={() => {
+              blurActiveInput();
+              handleRemoveClick();
+            }}
             title={
               !removeMode
                 ? "Enter remove mode (select tasks to delete)"
@@ -505,7 +523,10 @@ export default function App() {
           </button>
           <button
             className={view === "map" ? "view-btn active" : "view-btn"}
-            onClick={openMap}
+            onClick={() => {
+              blurActiveInput();
+              openMap();
+            }}
           >
             Visualize
           </button>
@@ -514,7 +535,10 @@ export default function App() {
             <button
               ref={saveBtnRef}
               className="btn btn-save"
-              onClick={toggleSaveMenu}
+              onClick={() => {
+                blurActiveInput();
+                toggleSaveMenu();
+              }}
             >
               Save
             </button>
@@ -541,11 +565,20 @@ export default function App() {
 
           <button
             className={view === "edit" ? "view-btn active" : "view-btn"}
-            onClick={switchToEdit}
+            onClick={() => {
+              blurActiveInput();
+              switchToEdit();
+            }}
           >
             Edit
           </button>
-          <button className="view-btn" onClick={doOpen}>
+          <button
+            className="view-btn"
+            onClick={() => {
+              blurActiveInput();
+              doOpen();
+            }}
+          >
             Open
           </button>
 
@@ -553,7 +586,10 @@ export default function App() {
             <button
               ref={downloadBtnRef}
               className="view-btn"
-              onClick={toggleDownloadMenu}
+              onClick={() => {
+                blurActiveInput();
+                toggleDownloadMenu();
+              }}
             >
               Download
             </button>
@@ -805,4 +841,3 @@ function Row({
     </>
   );
 }
-
