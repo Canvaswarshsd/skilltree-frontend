@@ -105,9 +105,7 @@ const MAX_Z = 4;
 
 const CENTER_ID = "__CENTER__";
 
-/* Einheitliche Textbreiten:
-   - CENTER: größer
-   - ROOT & CHILD: gleich, damit identischer Umbruch */
+/* Textbreiten */
 const MAXLEN_CENTER = 12;
 const MAXLEN_ROOT_AND_CHILD = 12;
 
@@ -148,12 +146,7 @@ function buildImageFileName(projectTitle: string, ext: "jpg" | "pdf") {
 }
 
 /**
- * Einheitliche Zeilenaufteilung:
- * - maxLen: maximale Zeichen pro Zeile
- * - maxLines: maximale Zeilenanzahl (Default 3)
- * - normales Wort-Wrapping: bricht an Leerzeichen
- * - wenn innerhalb des Fensters kein Leerzeichen gefunden wird, hyphenieren wir (sichtbarer '-')
- * - mehrere Spaces werden berücksichtigt (zählen in die Länge); vorhandene \n werden respektiert
+ * Einheitliche Zeilenaufteilung
  */
 function splitTitleLines(
   t: string,
@@ -219,7 +212,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  // Done-Status für das Projekt (Zentrum) – vererbt sich wie eine Wurzel nach unten
+  // Done-Status für das Projekt
   const [centerDone, setCenterDone] = useState<boolean>(false);
 
   // Farben für einzelne Verbindungsstriche (Edge-Overrides)
@@ -227,7 +220,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     Record<string, string>
   >({});
 
-  // Derive helpers
+  // Helpers
   const roots = useMemo(
     () => tasks.filter((t) => t.parentId === null),
     [tasks]
@@ -238,7 +231,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset((prev) => ({ ...prev, [id]: { x, y } }));
 
-  // effektiver Done-Status einer Aufgabe (CSS-artige Vererbung: Projekt → Eltern → Kind)
+  // effektiver Done-Status
   function computeEffectiveDoneForTaskId(taskId: string): boolean {
     const chain: Task[] = [];
     let cur: Task | undefined = getTask(taskId);
@@ -247,7 +240,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       cur = cur.parentId ? getTask(cur.parentId) : undefined;
     }
     let value = !!centerDone;
-    // von oben nach unten laufen (Root zuerst, Node zuletzt)
     for (let i = chain.length - 1; i >= 0; i--) {
       const t = chain[i];
       if (typeof t.done === "boolean") {
@@ -257,7 +249,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return value;
   }
 
-  // Fortschritt (Gamification HUD)
+  // Fortschritt (HUD)
   const totalTasks = tasks.length;
   const doneCount = useMemo(() => {
     if (!totalTasks) return 0;
@@ -269,7 +261,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const progressPercent =
     totalTasks === 0 ? 0 : Math.round((doneCount / totalTasks) * 100);
 
-  /* ---------- Node-Drag (Visualize) ---------- */
+  /* ---------- Node-Drag ---------- */
   const vDrag = useRef<{
     id: string;
     startClient: { x: number; y: number };
@@ -278,9 +270,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
-    // Im Remove-Modus keine Node-Bewegung
     if (removeMode) return;
-
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -445,7 +435,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return () => window.removeEventListener("gesturechange", onGestureChange);
   }, [scale, active, pan.x, pan.y]);
 
-  // Global: Website-Zoom blocken (Ctrl+Wheel etc.) – nur wenn aktiv
+  // Global-Zoom blocken
   useEffect(() => {
     if (!active) return;
     const onGlobalWheel = (ev: WheelEvent) => {
@@ -475,7 +465,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [active]);
 
-  // Native Wheel Listener (Teams) – nur wenn aktiv
+  // Native Wheel Listener (Teams)
   useEffect(() => {
     if (!active) return;
     const el = wrapperRef.current;
@@ -496,7 +486,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [scale, active]);
 
-  /* ---------- Kontextmenü: Farbe + Done / Edge ---------- */
+  /* ---------- Kontextmenü: Nodes & Edges ---------- */
   const [ctxMenu, setCtxMenu] = useState<{
     open: boolean;
     x: number;
@@ -556,7 +546,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       open: false,
     }));
 
-  // Wenn Remove-Modus aktiviert wird, Kontextmenü schließen
+  // Remove-Modus schließt Menü
   useEffect(() => {
     if (removeMode && ctxMenu.open) {
       closeColorMenu();
@@ -589,6 +579,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const applyColor = (hex: string) => {
     if (!ctxMenu.open) return;
 
+    // Node-Modus (Center, Root, Child)
     if (ctxMenu.kind === "node") {
       if (!ctxMenu.nodeId) return;
 
@@ -602,8 +593,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         closeColorMenu();
         return;
       }
+
       if (t.parentId === null) {
-        // Root-Farbe (Linien + Root-Kreis)
+        // Root: Branch-Farbe
         setBranchColorOverride((prev) => ({ ...prev, [t.id]: hex }));
       } else {
         // Child: nur dieser Node
@@ -615,6 +607,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       return;
     }
 
+    // Edge-Modus (eigene Logik für Linien)
     if (ctxMenu.kind === "edge") {
       const parentId = ctxMenu.edgeParentId;
       const childId = ctxMenu.edgeChildId;
@@ -623,8 +616,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         return;
       }
 
-      // Center → Root: wie Branch-Farbe behandeln
       if (parentId === CENTER_ID) {
+        // Center -> Root: wie Branch-Farbe für den gesamten Strang
         setBranchColorOverride((prev) => ({ ...prev, [childId]: hex }));
         setEdgeColorOverride((prev) => {
           const copy = { ...prev };
@@ -632,6 +625,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           return copy;
         });
       } else {
+        // Tiefe Linien: nur diese einzelne Edge färben
         const key = edgeKey(parentId, childId);
         setEdgeColorOverride((prev) => ({ ...prev, [key]: hex }));
       }
@@ -644,7 +638,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     if (!ctxMenu.open || ctxMenu.kind !== "node") return;
     if (!ctxMenu.nodeId) return;
 
-    // Projekt-Kreis (Center) toggeln: wirkt als globale "Root"-Vererbung
     if (ctxMenu.nodeId === CENTER_ID) {
       setCenterDone((prev) => !prev);
       return;
@@ -659,7 +652,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
     let nextExplicit: boolean;
     if (explicit === undefined) {
-      // war bisher nur vererbt -> Klick invertiert den sichtbaren Zustand
       nextExplicit = !effective;
     } else if (explicit === true) {
       nextExplicit = false;
@@ -667,7 +659,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       nextExplicit = true;
     }
 
-    // Nur dieser Task bekommt einen expliziten Wert – Kinder erben wie bei Farben
     setTasks((prev) =>
       prev.map((x) => (x.id === id ? { ...x, done: nextExplicit } : x))
     );
@@ -676,7 +667,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (removeMode) return; // im Remove-Modus keine Farbe/Done
+    if (removeMode) return;
     openColorMenuForNode(e.clientX, e.clientY, id);
   };
 
@@ -691,7 +682,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
   };
 
-  /* ---------- Export: Screenshot der Map (mit leichtem Auto-Zoom) ---------- */
+  /* ---------- Export ---------- */
 
   const captureMapAsDataUrl = async (
     format: "jpeg" | "png"
@@ -707,7 +698,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       throw new Error("Map has zero size – cannot export image");
     }
 
-    // HUD-Elemente (Progress etc.) für Export unsichtbar machen
     const exportHudNodes = Array.from(
       target.querySelectorAll<HTMLElement>(".map-export-hide")
     );
@@ -716,14 +706,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       n.style.visibility = "hidden";
     });
 
-    // 1) Aktuelle View merken
     const originalScale = scale;
     const originalPan = { ...pan };
     let viewAdjusted = false;
 
-    // 2) Für Export leicht herauszoomen, damit oben/unten etwas Rand entsteht
     try {
-      const factor = 0.85; // wie weit rauszoomen für den Export
+      const factor = 0.85;
       const desiredScale = Math.max(MIN_Z, originalScale * factor);
 
       if (desiredScale < originalScale) {
@@ -732,7 +720,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         zoomAt(cx, cy, desiredScale);
         viewAdjusted = true;
 
-        // DOM-Update abwarten (2 Frames, um sicherzugehen)
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() =>
             requestAnimationFrame(() => resolve())
@@ -740,7 +727,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         );
       }
 
-      // 3) Bild wirklich rendern
       const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
       const backgroundColor = "#ffffff";
 
@@ -774,12 +760,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         ? err
         : new Error("Unknown error during map export");
     } finally {
-      // HUD wiederherstellen
       exportHudNodes.forEach((n, i) => {
         n.style.visibility = prevVisibility[i];
       });
 
-      // 4) View wieder auf ursprüngliche Werte zurücksetzen
       if (viewAdjusted) {
         setScale(originalScale);
         setPan(originalPan);
@@ -852,6 +836,62 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }));
 
   /* ---------- Render-Helpers ---------- */
+
+  function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
+    const lines = splitTitleLines(title, maxLen, 3);
+    return lines.map((ln, i) => (
+      <span
+        key={i}
+        style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}
+      >
+        {ln}
+      </span>
+    ));
+  }
+
+  // Eine Edge als sichtbare Linie + großer unsichtbarer Hit-Bereich
+  function renderEdgeLine(
+    keyBase: string,
+    parentId: string,
+    childId: string,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    color: string
+  ): JSX.Element {
+    const edgeId = edgeKey(parentId, childId);
+    const lineColor = edgeColorOverride[edgeId] ?? color;
+
+    return (
+      <React.Fragment key={keyBase}>
+        {/* Unsichtbare dicke Hit-Line */}
+        <line
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke="transparent"
+          strokeWidth="18"
+          strokeLinecap="round"
+          style={{ pointerEvents: "stroke" }}
+          onContextMenu={(e) => onEdgeContextMenu(e, parentId, childId)}
+        />
+        {/* Sichtbare Linie */}
+        <line
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke={lineColor}
+          strokeWidth="3"
+          strokeLinecap="round"
+          style={{ pointerEvents: "none" }}
+        />
+      </React.Fragment>
+    );
+  }
+
   function renderChildLinesWithOffsets(
     parentId: string,
     px: number,
@@ -881,30 +921,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const cx = cxBase + ko.x;
       const cy = cyBase + ko.y;
 
-      const { x1, y1, x2, y2 } = segmentBetweenCircles(
-        px,
-        py,
-        pr,
-        cx,
-        cy,
-        R_CHILD
-      );
-
-      const edgeId = edgeKey(parentId, kid.id);
-      const lineColor = edgeColorOverride[edgeId] ?? rootColor;
+      const seg = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
 
       lines.push(
-        <line
-          key={`line-${parentId}-${kid.id}`}
-          x1={x1}
-          y1={y1}
-          x2={x2}
-          y2={y2}
-          stroke={lineColor}
-          strokeWidth="3"
-          strokeLinecap="round"
-          onContextMenu={(e) => onEdgeContextMenu(e, parentId, kid.id)}
-        />
+        renderEdgeLine(
+          `line-${parentId}-${kid.id}`,
+          parentId,
+          kid.id,
+          seg.x1,
+          seg.y1,
+          seg.x2,
+          seg.y2,
+          rootColor
+        )
       );
 
       lines.push(
@@ -921,18 +950,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     });
 
     return lines;
-  }
-
-  function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
-    const lines = splitTitleLines(title, maxLen, 3);
-    return lines.map((ln, i) => (
-      <span
-        key={i}
-        style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}
-      >
-        {ln}
-      </span>
-    ));
   }
 
   function renderChildNodesWithOffsets(
@@ -1062,6 +1079,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       >
         <div className="map-origin">
           <svg className="map-svg" viewBox="-2000 -2000 4000 4000">
+            {/* Center -> Root Linien */}
             {roots.map((root, i) => {
               const total = Math.max(roots.length, 1);
               const ang = (i / total) * Math.PI * 2;
@@ -1070,7 +1088,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               const ro = getOffset(root.id);
               const rx = rxBase + ro.x;
               const ry = ryBase + ro.y;
-              const { x1, y1, x2, y2 } = segmentBetweenCircles(
+              const seg = segmentBetweenCircles(
                 0,
                 0,
                 R_CENTER,
@@ -1081,24 +1099,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               const baseColor =
                 branchColorOverride[root.id] ??
                 BRANCH_COLORS[i % BRANCH_COLORS.length];
-              const edgeId = edgeKey(CENTER_ID, root.id);
-              const lineColor = edgeColorOverride[edgeId] ?? baseColor;
-              return (
-                <line
-                  key={`root-line-${root.id}`}
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  stroke={lineColor}
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  onContextMenu={(e) =>
-                    onEdgeContextMenu(e, CENTER_ID, root.id)
-                  }
-                />
+
+              return renderEdgeLine(
+                `root-line-${root.id}`,
+                CENTER_ID,
+                root.id,
+                seg.x1,
+                seg.y1,
+                seg.x2,
+                seg.y2,
+                baseColor
               );
             })}
+
+            {/* Child-Linien */}
             {roots.flatMap((root, i) => {
               const total = Math.max(roots.length, 1);
               const ang = (i / total) * Math.PI * 2;
@@ -1229,7 +1243,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       </div>
 
-      {/* Progress-HUD rechts oben (nicht im Export sichtbar, wegen map-export-hide) */}
+      {/* Progress-HUD */}
       {totalTasks > 0 && (
         <div className="map-progress map-export-hide">
           <div className="map-progress-label">Progress</div>
