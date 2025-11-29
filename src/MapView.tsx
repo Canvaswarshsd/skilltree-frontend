@@ -1126,9 +1126,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             if (e.pointerType === "touch") {
               e.stopPropagation();
               e.preventDefault();
+              // Touch: Drag + Long-Press für Farbmenü
+              startNodeDrag(kid.id, e);
               startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
               return;
             }
+            // Maus: direkt Drag
             startNodeDrag(kid.id, e);
           }}
           onPointerUp={clearTouchLongPress}
@@ -1344,9 +1347,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     if (e.pointerType === "touch") {
                       e.stopPropagation();
                       e.preventDefault();
+                      // Touch: Drag + Long-Press
+                      startNodeDrag(root.id, e);
                       startTouchLongPressForNode(root.id, e.clientX, e.clientY);
                       return;
                     }
+                    // Maus
                     startNodeDrag(root.id, e);
                   }}
                   onPointerUp={clearTouchLongPress}
