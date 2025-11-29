@@ -83,56 +83,57 @@ const BRANCH_COLORS = [
  * Alle Menüs (Projektball, Tasks, Kanten) benutzen diese Liste.
  */
 const COLOR_SWATCHES = [
-  // Warm: Orange & Yellow
-  "#f97316", // orange 500
-  "#ea580c", // orange 600
-  "#c2410c", // orange 700
-  "#facc15", // yellow 400
-  "#eab308", // yellow 500
-  "#ca8a04", // yellow 600
+  // Row 1 – warme Farben (Orange/Rot, hell → dunkler)
+  "#fb923c",
+  "#f97316",
+  "#fbbf24",
+  "#f59e0b",
+  "#fb7185",
+  "#f43f5e",
+  "#ef4444",
+  "#dc2626",
 
-  // Reds & Roses
-  "#f87171", // red 400
-  "#ef4444", // red 500
-  "#dc2626", // red 600
-  "#b91c1c", // red 700
-  "#f43f5e", // rose 500
-  "#e11d48", // rose 600
+  // Row 2 – Gelb / Lime / Grün (hell → dunkler)
+  "#facc15",
+  "#eab308",
+  "#a3e635",
+  "#84cc16",
+  "#4ade80",
+  "#22c55e",
+  "#10b981",
+  "#059669",
 
-  // Greens
-  "#4ade80", // green 400
-  "#22c55e", // green 500
-  "#16a34a", // green 600
-  "#15803d", // green 700
-  "#84cc16", // lime 500
+  // Row 3 – Türkis / Cyan / Blau (hell → dunkler)
+  "#2dd4bf",
+  "#14b8a6",
+  "#22d3ee",
+  "#06b6d4",
+  "#38bdf8",
+  "#0ea5e9",
+  "#3b82f6",
+  "#2563eb",
 
-  // Teals / Cyans
-  "#14b8a6", // teal 500
-  "#0d9488", // teal 600
-  "#0f766e", // teal 700
-  "#22d3ee", // cyan 400
+  // Row 4 – Indigo / Violet / Purple / Fuchsia (hell → dunkler)
+  "#818cf8",
+  "#6366f1",
+  "#a78bfa",
+  "#8b5cf6",
+  "#c084fc",
+  "#a855f7",
+  "#f472b6",
+  "#ec4899",
 
-  // Blues
-  "#0ea5e9", // sky 500
-  "#0284c7", // sky 600
-  "#0369a1", // sky 700
-  "#3b82f6", // blue 500
-  "#1d4ed8", // blue 700
-
-  // Purples / Violettöne
-  "#6366f1", // indigo 500
-  "#4f46e5", // indigo 600
-  "#4338ca", // indigo 700
-  "#a855f7", // purple 500
-  "#7c3aed", // violet 600
-
-  // Neutrals / Darks
-  "#6b7280", // gray 500
-  "#4b5563", // gray 600
-  "#374151", // gray 700
-  "#111827", // gray 900
-  "#020617", // slate 950
+  // Row 5 – Neutrale Töne (Grau → fast Schwarz)
+  "#e5e7eb",
+  "#d1d5db",
+  "#9ca3af",
+  "#6b7280",
+  "#4b5563",
+  "#374151",
+  "#1f2937",
+  "#020617",
 ];
+
 
 const R_CENTER = 75;
 const R_ROOT = 60;
