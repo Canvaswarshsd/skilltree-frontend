@@ -70,27 +70,68 @@ const BRANCH_COLORS = [
   "#f43f5e",
 ];
 
+/**
+ * Erweitertes, logisch sortiertes Farbspektrum:
+ * - warme Oranges / Yellows
+ * - Reds / Roses
+ * - Greens
+ * - Teals / Cyans
+ * - Blues
+ * - Purples / Violettöne
+ * - Neutrale / dunkle Töne
+ *
+ * Alle Menüs (Projektball, Tasks, Kanten) benutzen diese Liste.
+ */
 const COLOR_SWATCHES = [
-  "#f97316",
-  "#fb923c",
-  "#f59e0b",
-  "#eab308",
-  "#22c55e",
-  "#10b981",
-  "#14b8a6",
-  "#06b6d4",
-  "#0ea5e9",
-  "#3b82f6",
-  "#6366f1",
-  "#8b5cf6",
-  "#a855f7",
-  "#ef4444",
-  "#f43f5e",
-  "#ec4899",
-  "#94a3b8",
-  "#64748b",
-  "#111827",
-  "#020617",
+  // Warm: Orange & Yellow
+  "#f97316", // orange 500
+  "#ea580c", // orange 600
+  "#c2410c", // orange 700
+  "#facc15", // yellow 400
+  "#eab308", // yellow 500
+  "#ca8a04", // yellow 600
+
+  // Reds & Roses
+  "#f87171", // red 400
+  "#ef4444", // red 500
+  "#dc2626", // red 600
+  "#b91c1c", // red 700
+  "#f43f5e", // rose 500
+  "#e11d48", // rose 600
+
+  // Greens
+  "#4ade80", // green 400
+  "#22c55e", // green 500
+  "#16a34a", // green 600
+  "#15803d", // green 700
+  "#84cc16", // lime 500
+
+  // Teals / Cyans
+  "#14b8a6", // teal 500
+  "#0d9488", // teal 600
+  "#0f766e", // teal 700
+  "#22d3ee", // cyan 400
+
+  // Blues
+  "#0ea5e9", // sky 500
+  "#0284c7", // sky 600
+  "#0369a1", // sky 700
+  "#3b82f6", // blue 500
+  "#1d4ed8", // blue 700
+
+  // Purples / Violettöne
+  "#6366f1", // indigo 500
+  "#4f46e5", // indigo 600
+  "#4338ca", // indigo 700
+  "#a855f7", // purple 500
+  "#7c3aed", // violet 600
+
+  // Neutrals / Darks
+  "#6b7280", // gray 500
+  "#4b5563", // gray 600
+  "#374151", // gray 700
+  "#111827", // gray 900
+  "#020617", // slate 950
 ];
 
 const R_CENTER = 75;
