@@ -446,6 +446,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     startScale: number;
   } | null>(null);
 
+  // NEU: Flag, um beim nächsten PointerDown das Löschen des Long-Press zu überspringen (Center-Node-Touch).
+  const skipClearLongPressOnNextPointerDown = useRef(false);
+
   function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
     const dx = a.x - b.x,
       dy = a.y - b.y;
@@ -473,7 +476,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const onPointerDownMap = (e: React.PointerEvent) => {
     if (!active) return;
-    clearTouchLongPress();
+
+    // Neu: Center-Node-Touch darf den Long-Press behalten.
+    if (skipClearLongPressOnNextPointerDown.current) {
+      skipClearLongPressOnNextPointerDown.current = false;
+    } else {
+      clearTouchLongPress();
+    }
+
     if (nodeDragging.current) return;
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -1311,9 +1321,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             onPointerDown={(e) => {
               if (removeMode) return;
               if (e.pointerType === "touch") {
-                e.stopPropagation();
+                // Kein stopPropagation, damit das Map-Panning starten kann.
                 e.preventDefault();
-                startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
+                // Diesen einen PointerDown nicht den Long-Press löschen lassen:
+                skipClearLongPressOnNextPointerDown.current = true;
+                startTouchLongPressForNode(
+                  CENTER_ID,
+                  e.clientX,
+                  e.clientY
+                );
               }
             }}
             onPointerUp={() => clearTouchLongPress()}
@@ -1382,7 +1398,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                       e.preventDefault();
                       // Touch: Drag + Long-Press
                       startNodeDrag(root.id, e);
-                      startTouchLongPressForNode(root.id, e.clientX, e.clientY);
+                      startTouchLongPressForNode(
+                        root.id,
+                        e.clientX,
+                        e.clientY
+                      );
                       return;
                     }
                     // Maus
