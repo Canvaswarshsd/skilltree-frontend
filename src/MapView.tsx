@@ -683,7 +683,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeId: null,
     edgeParentId: null,
     edgeChildId: null,
-    tab: "color", // Color ist initial aktiv und damit auch umrandet
+    tab: "color",
   });
 
   // Kontextmenü für einzelne Attachments (Download / Delete)
@@ -719,7 +719,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       nodeId: taskId,
       edgeParentId: null,
       edgeChildId: null,
-      tab: "color", // beim Öffnen Color aktiv
+      tab: "color",
     });
   };
 
@@ -960,12 +960,22 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeId: string,
     attachmentId: string
   ) => {
-    setFileMenu({
-      open: true,
-      x: clientX,
-      y: clientY,
-      nodeId,
-      attachmentId,
+    // Toggle: wenn dasselbe Attachment schon offen ist, Menü schließen
+    setFileMenu((prev) => {
+      if (
+        prev.open &&
+        prev.nodeId === nodeId &&
+        prev.attachmentId === attachmentId
+      ) {
+        return { ...prev, open: false };
+      }
+      return {
+        open: true,
+        x: clientX,
+        y: clientY,
+        nodeId,
+        attachmentId,
+      };
     });
   };
 
@@ -1003,7 +1013,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     format: "jpeg" | "png"
   ): Promise<string> => {
     const el = wrapperRef.current;
-    if (!el) throw new Error("Map wrapper not found");
+       if (!el) throw new Error("Map wrapper not found");
 
     const target = el as HTMLElement;
     const rect = target.getBoundingClientRect();
@@ -1649,7 +1659,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 className="ctxmenu-tabRow"
                 style={{
                   display: "flex",
-                  gap: 10, // nur Abstand zwischen Color und Files
+                  gap: 10,
                 }}
               >
                 <button
@@ -1719,7 +1729,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   <ul
                     className="ctxmenu-fileList"
                     style={{
-                      listStyle: "none", // kein zweiter Punkt
+                      listStyle: "none",
                       padding: 0,
                       margin: "10px 0 0 0",
                     }}
@@ -1729,7 +1739,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                         <button
                           className="ctxmenu-fileButton"
                           style={{
-                            background: "transparent", // kein weißer Hintergrund
+                            background: "transparent",
                             border: "none",
                           }}
                           onClick={(e) => {
@@ -1757,7 +1767,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                           <span className="ctxmenu-fileIcon" aria-hidden="true">
                             📄
                           </span>
-                          <span className="ctxmenu-fileName">
+                          <span
+                            className="ctxmenu-fileName"
+                            style={{ color: "#e5e7eb" }} // weiße/helle Schrift
+                          >
                             {att.name}
                           </span>
                         </button>
@@ -1794,17 +1807,42 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           style={{
             left: fileMenu.x,
             top: fileMenu.y,
-            padding: "8px 0",
+            padding: "4px 0",
             minWidth: 140,
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
-          <button className="filemenu-item" onClick={handleDownloadAttachment}>
+          <button
+            className="filemenu-item-plain"
+            style={{
+              display: "block",
+              width: "100%",
+              padding: "6px 14px",
+              background: "transparent",
+              border: "none",
+              textAlign: "left",
+              color: "#e5e7eb",
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+            onClick={handleDownloadAttachment}
+          >
             Download
           </button>
           <button
-            className="filemenu-item filemenu-item-danger"
+            className="filemenu-item-plain"
+            style={{
+              display: "block",
+              width: "100%",
+              padding: "6px 14px",
+              background: "transparent",
+              border: "none",
+              textAlign: "left",
+              color: "#fecaca",
+              fontSize: 13,
+              cursor: "pointer",
+            }}
             onClick={handleDeleteAttachment}
           >
             Delete
