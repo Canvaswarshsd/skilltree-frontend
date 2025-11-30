@@ -10,20 +10,12 @@ import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 
 /* ---------- Types (lokal identisch zu App) ---------- */
-export type TaskAttachment = {
-  id: string;
-  name: string;
-  mime: string;
-  dataUrl: string;
-};
-
 export type Task = {
   id: string;
   title: string;
   parentId: string | null;
   color?: string; // individuelle Node-Farbe (nur Kreis)
   done?: boolean; // manueller Done-Status (Vererbung wie bei Farben)
-  attachments?: TaskAttachment[]; // PDF-Anhänge
 };
 
 export type MapApi = {
@@ -237,15 +229,6 @@ function splitTitleLines(
 const edgeKey = (parentId: string, childId: string) =>
   `${parentId}__${childId}`;
 
-/* Simple ID-Helper für Attachments */
-function createId() {
-  return (
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 8)
-  );
-}
-
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const {
@@ -273,22 +256,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   // Done-Status für das Projekt
   const [centerDone, setCenterDone] = useState<boolean>(false);
 
-  // Attachments für den Projekt-Center (separat von Tasks)
-  const [centerAttachments, setCenterAttachments] = useState<
-    TaskAttachment[]
-  >([]);
-
-  // Aktiver Tab im Kontextmenü (nur für Nodes)
-  const [ctxActiveTab, setCtxActiveTab] = useState<"color" | "files">(
-    "color"
-  );
-
-  // Hidden File-Input für PDFs
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [pendingFileNodeId, setPendingFileNodeId] = useState<string | null>(
-    null
-  );
-
   // Linien-Farben:
   //  - branchEdgeColorOverride[rootId]  -> Grundfarbe für alle Edges in diesem Zweig
   //  - edgeColorOverride[parent__child] -> Override für genau eine Edge
@@ -309,32 +276,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset((prev) => ({ ...prev, [id]: { x, y } }));
-
-  const getAttachmentsForNode = (nodeId: string): TaskAttachment[] => {
-    if (nodeId === CENTER_ID) return centerAttachments;
-    const t = getTask(nodeId);
-    return t?.attachments ?? [];
-  };
-
-  const setAttachmentsForNode = (
-    nodeId: string,
-    updater: (prev: TaskAttachment[]) => TaskAttachment[]
-  ) => {
-    if (nodeId === CENTER_ID) {
-      setCenterAttachments((prev) => updater(prev));
-    } else {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === nodeId
-            ? {
-                ...t,
-                attachments: updater(t.attachments ?? []),
-              }
-            : t
-        )
-      );
-    }
-  };
 
   function computeEffectiveDoneForTaskId(taskId: string): boolean {
     const chain: Task[] = [];
@@ -505,7 +446,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     startScale: number;
   } | null>(null);
 
-  // Flag, um beim nächsten PointerDown das Löschen des Long-Press zu überspringen (Center-Node-Touch).
+  // NEU: Flag, um beim nächsten PointerDown das Löschen des Long-Press zu überspringen (Center-Node-Touch).
   const skipClearLongPressOnNextPointerDown = useRef(false);
 
   function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -536,6 +477,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onPointerDownMap = (e: React.PointerEvent) => {
     if (!active) return;
 
+    // Neu: Center-Node-Touch darf den Long-Press behalten.
     if (skipClearLongPressOnNextPointerDown.current) {
       skipClearLongPressOnNextPointerDown.current = false;
     } else {
@@ -716,27 +658,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     edgeChildId: null,
   });
 
-  const [attachmentMenu, setAttachmentMenu] = useState<{
-    open: boolean;
-    x: number;
-    y: number;
-    nodeId: string | null;
-    attachmentId: string | null;
-  }>({
-    open: false,
-    x: 0,
-    y: 0,
-    nodeId: null,
-    attachmentId: null,
-  });
-
   const openColorMenuForNode = (
     clientX: number,
     clientY: number,
     taskId: string
   ) => {
     if (removeMode) return;
-    setCtxActiveTab("color");
     setCtxMenu({
       open: true,
       x: clientX,
@@ -755,7 +682,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     childId: string
   ) => {
     if (removeMode) return;
-    setCtxActiveTab("color");
     setCtxMenu({
       open: true,
       x: clientX,
@@ -772,24 +698,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       ...prev,
       open: false,
     }));
-
-  const openAttachmentMenu = (
-    x: number,
-    y: number,
-    nodeId: string,
-    attachmentId: string
-  ) => {
-    setAttachmentMenu({
-      open: true,
-      x,
-      y,
-      nodeId,
-      attachmentId,
-    });
-  };
-
-  const closeAttachmentMenu = () =>
-    setAttachmentMenu((prev) => ({ ...prev, open: false }));
 
   useEffect(() => {
     if (removeMode && ctxMenu.open) {
@@ -818,28 +726,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       window.removeEventListener("keydown", onEsc);
     };
   }, [ctxMenu.open]);
-
-  useEffect(() => {
-    if (!attachmentMenu.open) return;
-
-    const onDown = (ev: PointerEvent) => {
-      const path = (ev.composedPath && ev.composedPath()) || [];
-      const inside = path.some((el) =>
-        (el as HTMLElement)?.classList?.contains?.("ctxmenu-attachment")
-      );
-      if (!inside) closeAttachmentMenu();
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeAttachmentMenu();
-    };
-
-    window.addEventListener("pointerdown", onDown);
-    window.addEventListener("keydown", onEsc);
-    return () => {
-      window.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("keydown", onEsc);
-    };
-  }, [attachmentMenu.open]);
 
   const applyColor = (hex: string) => {
     if (!ctxMenu.open) return;
@@ -944,79 +830,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     e.stopPropagation();
     if (removeMode) return;
     openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
-  };
-
-  const handleAddPdfClick = (nodeId: string) => {
-    if (!fileInputRef.current) return;
-    setPendingFileNodeId(nodeId);
-    fileInputRef.current.value = "";
-    fileInputRef.current.click();
-  };
-
-  const handleFileInputChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const files = e.target.files;
-    const nodeId = pendingFileNodeId;
-    setPendingFileNodeId(null);
-    if (!files || !nodeId) return;
-
-    const pdfFiles = Array.from(files).filter((f) => {
-      const nameOk = f.name.toLowerCase().endsWith(".pdf");
-      const mimeOk = f.type === "application/pdf" || f.type === "";
-      return nameOk || mimeOk;
-    });
-    if (pdfFiles.length === 0) return;
-
-    pdfFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const att: TaskAttachment = {
-          id: createId(),
-          name: file.name,
-          mime: file.type || "application/pdf",
-          dataUrl,
-        };
-        setAttachmentsForNode(nodeId, (prev) => [...prev, att]);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handleDownloadAttachment = () => {
-    if (
-      !attachmentMenu.open ||
-      !attachmentMenu.nodeId ||
-      !attachmentMenu.attachmentId
-    )
-      return;
-    const list = getAttachmentsForNode(attachmentMenu.nodeId);
-    const att = list.find((a) => a.id === attachmentMenu.attachmentId);
-    if (!att) return;
-
-    const a = document.createElement("a");
-    a.href = att.dataUrl;
-    a.download = att.name || "attachment.pdf";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    closeAttachmentMenu();
-  };
-
-  const handleDeleteAttachment = () => {
-    if (
-      !attachmentMenu.open ||
-      !attachmentMenu.nodeId ||
-      !attachmentMenu.attachmentId
-    )
-      return;
-    const nodeId = attachmentMenu.nodeId;
-    const attId = attachmentMenu.attachmentId;
-    setAttachmentsForNode(nodeId, (prev) =>
-      prev.filter((a) => a.id !== attId)
-    );
-    closeAttachmentMenu();
   };
 
   /* ---------- Export ---------- */
@@ -1171,48 +984,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       </span>
     ));
   }
-
-  const renderFilesTabContent = () => {
-    if (ctxMenu.kind !== "node" || !ctxMenu.nodeId) return null;
-    const attachments = getAttachmentsForNode(ctxMenu.nodeId);
-
-    return (
-      <div className="ctxmenu-files">
-        <button
-          className="ctxmenu-addfileBtn"
-          onClick={() => handleAddPdfClick(ctxMenu.nodeId!)}
-        >
-          + Add PDF
-        </button>
-        {attachments.length === 0 ? (
-          <div className="ctxmenu-files-empty">No PDFs attached yet.</div>
-        ) : (
-          <ul className="ctxmenu-filelist">
-            {attachments.map((att) => (
-              <li
-                key={att.id}
-                className="ctxmenu-fileitem"
-                title={att.name}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openAttachmentMenu(
-                    e.clientX,
-                    e.clientY,
-                    ctxMenu.nodeId!,
-                    att.id
-                  );
-                }}
-              >
-                <span className="ctxmenu-fileicon">📄</span>
-                <span className="ctxmenu-filename">{att.name}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    );
-  };
 
   // Eine Edge = sichtbare Linie + dicke unsichtbare Hit-Line
   function renderEdgeLine(
@@ -1692,17 +1463,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Hidden File Input für PDFs */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/pdf,.pdf"
-        multiple
-        style={{ display: "none" }}
-        onChange={handleFileInputChange}
-      />
-
-      {/* Kontextmenü Node/Edge */}
+      {/* Kontextmenü */}
       {ctxMenu.open && !removeMode && (
         <div
           className="ctxmenu"
@@ -1713,34 +1474,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           onContextMenu={(e) => e.preventDefault()}
         >
           <div className="ctxmenu-header">
-            {ctxMenu.kind === "node" ? (
-              <div className="ctxmenu-tabs">
-                <button
-                  className={
-                    "ctxmenu-tab" +
-                    (ctxActiveTab === "color"
-                      ? " ctxmenu-tab-active"
-                      : "")
-                  }
-                  onClick={() => setCtxActiveTab("color")}
-                >
-                  Color
-                </button>
-                <button
-                  className={
-                    "ctxmenu-tab" +
-                    (ctxActiveTab === "files"
-                      ? " ctxmenu-tab-active"
-                      : "")
-                  }
-                  onClick={() => setCtxActiveTab("files")}
-                >
-                  Files
-                </button>
-              </div>
-            ) : (
-              <div className="ctxmenu-title">Color</div>
-            )}
+            <div className="ctxmenu-title">Color</div>
             {ctxMenu.kind === "node" && ctxMenu.nodeId && (
               <button
                 className={
@@ -1757,49 +1491,21 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               </button>
             )}
           </div>
-
-          {ctxMenu.kind === "node" && ctxActiveTab === "files"
-            ? renderFilesTabContent()
-            : (
-              <div className="ctxmenu-swatches">
-                {COLOR_SWATCHES.map((hex) => (
-                  <button
-                    key={hex}
-                    className="ctxmenu-swatch"
-                    style={{ background: hex }}
-                    onClick={() => applyColor(hex)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      applyColor(hex);
-                    }}
-                    aria-label={`Color ${hex}`}
-                  />
-                ))}
-              </div>
-            )}
-        </div>
-      )}
-
-      {/* Kontextmenü für Attachments */}
-      {attachmentMenu.open && (
-        <div
-          className="ctxmenu-attachment"
-          style={{ left: attachmentMenu.x, top: attachmentMenu.y }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <button
-            className="ctxmenu-attachment-btn"
-            onClick={handleDownloadAttachment}
-          >
-            Download
-          </button>
-          <button
-            className="ctxmenu-attachment-btn ctxmenu-attachment-btn-danger"
-            onClick={handleDeleteAttachment}
-          >
-            Delete
-          </button>
+          <div className="ctxmenu-swatches">
+            {COLOR_SWATCHES.map((hex) => (
+              <button
+                key={hex}
+                className="ctxmenu-swatch"
+                style={{ background: hex }}
+                onClick={() => applyColor(hex)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  applyColor(hex);
+                }}
+                aria-label={`Color ${hex}`}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
