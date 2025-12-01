@@ -69,17 +69,6 @@ type MapViewProps = {
   active?: boolean;
 };
 
-/* ---------- Zusätzliche Typen für Bilder ---------- */
-
-type MapImage = {
-  id: string;
-  x: number; // Weltkoordinate (wie Nodes)
-  y: number;
-  width: number;
-  height: number;
-  dataUrl: string;
-};
-
 /* ---------- Konstanten ---------- */
 const BRANCH_COLORS = [
   "#f97316",
@@ -231,7 +220,7 @@ function splitTitleLines(
 const edgeKey = (parentId: string, childId: string) =>
   `${parentId}__${childId}`;
 
-/* ID-Helfer für Attachments / Images */
+/* ID-Helfer für Attachments */
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random()
     .toString(36)
@@ -269,21 +258,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const [centerAttachments, setCenterAttachments] = useState<
     TaskAttachment[]
   >([]);
-
-  // Bilder auf der Map (lokaler State, hängt an der Welt)
-  const [images, setImages] = useState<MapImage[]>([]);
-
-  // Button für "Paste" (Rechtsklick auf Map)
-  const [pasteButton, setPasteButton] = useState<{
-    open: boolean;
-    x: number;
-    y: number;
-    worldX: number;
-    worldY: number;
-  } | null>(null);
-
-  // Pending-Position für Fallback-Dateiupload (Bild)
-  const pendingImageWorldPos = useRef<{ x: number; y: number } | null>(null);
 
   // Linien-Farben:
   //  - branchEdgeColorOverride[rootId]  -> Grundfarbe für alle Edges in diesem Zweig
@@ -431,18 +405,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     startClient: { x: number; y: number };
     startOffset: { x: number; y: number };
   } | null>(null);
-
-  // Drag-State für Bilder (Move + Resize)
-  const imgDrag = useRef<{
-    id: string;
-    mode: "move" | "resize";
-    startClient: { x: number; y: number };
-    startX: number;
-    startY: number;
-    startW: number;
-    startH: number;
-  } | null>(null);
-
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
@@ -458,7 +420,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
-
   function onNodePointerMove(e: PointerEvent) {
     // Wenn wir uns beim Touch deutlich bewegen, Long-Press abbrechen
     if (
@@ -475,74 +436,17 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
 
     const d = vDrag.current;
-    const imgD = imgDrag.current;
-
-    // Node verschieben
-    if (d) {
-      const dx = e.clientX - d.startClient.x;
-      const dy = e.clientY - d.startClient.y;
-      setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
-      return;
-    }
-
-    // Bild verschieben oder skalieren
-    if (imgD) {
-      const dx = e.clientX - imgD.startClient.x;
-      const dy = e.clientY - imgD.startClient.y;
-
-      if (imgD.mode === "move") {
-        const worldDx = dx / scale;
-        const worldDy = dy / scale;
-        setImages((prev) =>
-          prev.map((im) =>
-            im.id === imgD.id
-              ? {
-                  ...im,
-                  x: imgD.startX + worldDx,
-                  y: imgD.startY + worldDy,
-                }
-              : im
-          )
-        );
-      } else if (imgD.mode === "resize") {
-        const deltaScreen = (dx + dy) / 2;
-        const deltaWorld = deltaScreen / scale;
-        const aspect =
-          imgD.startW > 0 && imgD.startH > 0
-            ? imgD.startW / imgD.startH
-            : 1;
-
-        let newW = imgD.startW + deltaWorld;
-        if (!Number.isFinite(newW)) newW = imgD.startW;
-        const minSize = 40;
-        if (newW < minSize) newW = minSize;
-
-        let newH = aspect ? newW / aspect : imgD.startH;
-        if (!Number.isFinite(newH)) newH = imgD.startH;
-        if (newH < minSize) newH = minSize;
-
-        setImages((prev) =>
-          prev.map((im) =>
-            im.id === imgD.id
-              ? {
-                  ...im,
-                  width: newW,
-                  height: newH,
-                }
-              : im
-          )
-        );
-      }
-    }
+    if (!d) return;
+    const dx = e.clientX - d.startClient.x;
+    const dy = e.clientY - d.startClient.y;
+    setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
-
   function onNodePointerUp() {
+    if (!vDrag.current) return;
     vDrag.current = null;
-    imgDrag.current = null;
     nodeDragging.current = false;
     document.documentElement.classList.remove("dragging-global");
   }
-
   useEffect(() => {
     window.addEventListener("pointermove", onNodePointerMove);
     window.addEventListener("pointerup", onNodePointerUp);
@@ -599,11 +503,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onPointerDownMap = (e: React.PointerEvent) => {
     if (!active) return;
 
-    // evtl. offenen Paste-Button schließen
-    if (pasteButton?.open) {
-      setPasteButton(null);
-    }
-
     if (skipClearLongPressOnNextPointerDown.current) {
       skipClearLongPressOnNextPointerDown.current = false;
     } else {
@@ -611,12 +510,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
 
     if (nodeDragging.current) return;
-
-    // Rechtsklick (Maus) nicht zum Pannen benutzen – der ist fürs Kontext/Paste
-    if (e.pointerType === "mouse" && e.button === 2) {
-      return;
-    }
-
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.current.size === 2) {
@@ -810,9 +703,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputTargetNodeId = useRef<string | null>(null);
-
-  // Hidden Image-File Input (Fallback)
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const openColorMenuForNode = (
     clientX: number,
@@ -1022,40 +912,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
   };
 
-  /* ---------- Kontextmenü für Map-Background (Paste-Bild) ---------- */
-
-  const onContextMenuMap = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!active) return;
-    if (removeMode) return;
-
-    const native = e.nativeEvent;
-    const path =
-      (native.composedPath && native.composedPath()) || ([] as EventTarget[]);
-    // wenn auf einem bestehenden Menü geklickt wird, ignorieren
-    const clickedOnMenu = path.some((el) =>
-      (el as HTMLElement)?.classList?.contains?.("ctxmenu")
-    );
-    if (clickedOnMenu) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const rect = wrapperRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const worldX = (cx - pan.x) / scale;
-    const worldY = (cy - pan.y) / scale;
-
-    setPasteButton({
-      open: true,
-      x: e.clientX,
-      y: e.clientY,
-      worldX,
-      worldY,
-    });
-  };
-
   /* ---------- Attachments: Add / Download / Delete ---------- */
 
   const handleAddPdfClick = (nodeId: string) => {
@@ -1151,134 +1007,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     setFileMenu((m) => ({ ...m, open: false }));
   };
 
-  /* ---------- Bild-Helfer: MapImage erzeugen ---------- */
-
-  const createMapImageAtWorldPos = async (
-    dataUrl: string,
-    worldX: number,
-    worldY: number
-  ) => {
-    const img = new Image();
-    img.src = dataUrl;
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("Failed to load image"));
-    });
-
-    let w = img.naturalWidth || 400;
-    let h = img.naturalHeight || 300;
-    const maxSide = Math.max(w, h);
-    const maxBase = 600;
-    if (maxSide > maxBase) {
-      const k = maxBase / maxSide;
-      w = Math.round(w * k);
-      h = Math.round(h * k);
-    }
-
-    setImages((prev) => [
-      ...prev,
-      {
-        id: makeId(),
-        x: worldX,
-        y: worldY,
-        width: w,
-        height: h,
-        dataUrl,
-      },
-    ]);
-  };
-
-  /* ---------- Bild aus Zwischenablage einfügen + Fallback ---------- */
-
-  const handlePasteImageClick = async () => {
-    if (!pasteButton || !pasteButton.open) return;
-
-    const { worldX, worldY } = pasteButton;
-    pendingImageWorldPos.current = { x: worldX, y: worldY };
-
-    const navClipboard: any = (navigator as any).clipboard;
-
-    const openFileFallback = () => {
-      if (imageInputRef.current) {
-        imageInputRef.current.value = "";
-        imageInputRef.current.click();
-        setPasteButton(null);
-      } else {
-        window.alert(
-          "Your browser does not allow clipboard image access and no file dialog is available."
-        );
-      }
-    };
-
-    if (!navClipboard || typeof navClipboard.read !== "function") {
-      // Browser kann clipboard.read() nicht -> direkt Dateidialog
-      openFileFallback();
-      return;
-    }
-
-    try {
-      const items = await navClipboard.read();
-      for (const item of items) {
-        const types: string[] = (item.types || []) as string[];
-        for (const type of types) {
-          if (type.startsWith("image/")) {
-            const blob = await item.getType(type);
-            const dataUrl: string = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = () =>
-                reject(
-                  reader.error || new Error("Failed to read image from clipboard")
-                );
-              reader.readAsDataURL(blob);
-            });
-
-            await createMapImageAtWorldPos(dataUrl, worldX, worldY);
-            setPasteButton(null);
-            return;
-          }
-        }
-      }
-
-      // Kein Bild im Clipboard gefunden -> Fallback auf Dateiupload
-      openFileFallback();
-    } catch {
-      // Fehler (Permissions, CORS, whatever) -> Fallback
-      openFileFallback();
-    }
-  };
-
-  /* ---------- Bild-Dateiupload (Fallback) ---------- */
-
-  const onImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      window.alert("Only image files are supported here.");
-      return;
-    }
-
-    const worldPos = pendingImageWorldPos.current || { x: 0, y: 0 };
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
-      if (!dataUrl) return;
-
-      await createMapImageAtWorldPos(dataUrl, worldPos.x, worldPos.y);
-      setPasteButton(null);
-    };
-    reader.readAsDataURL(file);
-  };
-
   /* ---------- Export ---------- */
 
   const captureMapAsDataUrl = async (
     format: "jpeg" | "png"
   ): Promise<string> => {
     const el = wrapperRef.current;
-    if (!el) throw new Error("Map wrapper not found");
+       if (!el) throw new Error("Map wrapper not found");
 
     const target = el as HTMLElement;
     const rect = target.getBoundingClientRect();
@@ -1673,7 +1408,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       onPointerUp={onPointerUpMap}
       onPointerCancel={onPointerUpMap}
       onWheel={onWheel}
-      onContextMenu={onContextMenuMap}
     >
       <div
         className="map-pan"
@@ -1747,83 +1481,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               );
             })}
           </svg>
-
-          {/* Pasted Images */}
-          {images.map((img) => (
-            <div
-              key={img.id}
-              className="map-image"
-              style={{
-                transform: `translate(${img.x}px, ${img.y}px) translate(-50%, -50%)`,
-                width: `${img.width}px`,
-                height: `${img.height}px`,
-              }}
-              onPointerDown={(e) => {
-                if (!active) return;
-                if (
-                  e.pointerType === "mouse" ||
-                  e.pointerType === "touch" ||
-                  e.pointerType === "pen"
-                ) {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-                  imgDrag.current = {
-                    id: img.id,
-                    mode: "move",
-                    startClient: { x: e.clientX, y: e.clientY },
-                    startX: img.x,
-                    startY: img.y,
-                    startW: img.width,
-                    startH: img.height,
-                  };
-                  nodeDragging.current = true;
-                  document.documentElement.classList.add("dragging-global");
-                }
-              }}
-              onPointerUp={() => {
-                clearTouchLongPress();
-              }}
-              onPointerCancel={() => {
-                clearTouchLongPress();
-              }}
-            >
-              <img
-                src={img.dataUrl}
-                alt=""
-                draggable={false}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "contain",
-                  pointerEvents: "none",
-                  borderRadius: 8,
-                }}
-              />
-              <div
-                className="map-image-resize-handle"
-                onPointerDown={(e) => {
-                  if (!active) return;
-                  e.stopPropagation();
-                  e.preventDefault();
-                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-                  imgDrag.current = {
-                    id: img.id,
-                    mode: "resize",
-                    startClient: { x: e.clientX, y: e.clientY },
-                    startX: img.x,
-                    startY: img.y,
-                    startW: img.width,
-                    startH: img.height,
-                  };
-                  nodeDragging.current = true;
-                  document.documentElement.classList.add(
-                    "dragging-global"
-                  );
-                }}
-              />
-            </div>
-          ))}
 
           {/* Center Node */}
           <div
@@ -1981,26 +1638,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Paste-Button für Bilder (Rechtsklick auf Map) */}
-      {pasteButton?.open && (
-        <button
-          className="map-paste-button map-export-hide"
-          style={{
-            position: "fixed",
-            left: pasteButton.x,
-            top: pasteButton.y,
-            transform: "translate(-50%, -50%)",
-          }}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handlePasteImageClick();
-          }}
-        >
-          Paste
-        </button>
-      )}
-
       {/* Kontextmenü (Color / Files) */}
       {ctxMenu.open && !removeMode && (
         <div
@@ -2132,7 +1769,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                           </span>
                           <span
                             className="ctxmenu-fileName"
-                            style={{ color: "#e5e7eb" }}
+                            style={{ color: "#e5e7eb" }} // weiße/helle Schrift
                           >
                             {att.name}
                           </span>
@@ -2213,22 +1850,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Hidden File Input für PDFs */}
+      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
         accept="application/pdf"
         style={{ display: "none" }}
         onChange={onFileInputChange}
-      />
-
-      {/* Hidden File Input für Bilder (Fallback) */}
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={onImageFileChange}
       />
     </div>
   );
