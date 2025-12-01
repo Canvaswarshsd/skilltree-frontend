@@ -31,7 +31,6 @@ export type MapApi = {
   exportJPG: () => Promise<void>;
   exportPDF: () => Promise<void>;
   resetView: () => void;
-  openImageUploadDialog: () => void;
 };
 
 type MapViewProps = {
@@ -68,16 +67,6 @@ type MapViewProps = {
 
   // aktiviert Pointer-/Wheel-Handling nur wenn sichtbar
   active?: boolean;
-};
-
-/* ---------- Zusätzlicher Typ für Bilder auf der Map ---------- */
-type MapImage = {
-  id: string;
-  x: number; // Weltkoordinate
-  y: number;
-  width: number;
-  height: number;
-  dataUrl: string;
 };
 
 /* ---------- Konstanten ---------- */
@@ -231,7 +220,7 @@ function splitTitleLines(
 const edgeKey = (parentId: string, childId: string) =>
   `${parentId}__${childId}`;
 
-/* ID-Helfer für Attachments / Bilder */
+/* ID-Helfer für Attachments */
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random()
     .toString(36)
@@ -269,9 +258,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const [centerAttachments, setCenterAttachments] = useState<
     TaskAttachment[]
   >([]);
-
-  // Bilder auf der Map (Weltkoordinaten)
-  const [images, setImages] = useState<MapImage[]>([]);
 
   // Linien-Farben:
   //  - branchEdgeColorOverride[rootId]  -> Grundfarbe für alle Edges in diesem Zweig
@@ -419,15 +405,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     startClient: { x: number; y: number };
     startOffset: { x: number; y: number };
   } | null>(null);
-  const imgDrag = useRef<{
-    id: string;
-    mode: "move" | "resize";
-    startClient: { x: number; y: number };
-    startX: number;
-    startY: number;
-    startW: number;
-    startH: number;
-  } | null>(null);
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
@@ -443,7 +420,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
-
   function onNodePointerMove(e: PointerEvent) {
     // Wenn wir uns beim Touch deutlich bewegen, Long-Press abbrechen
     if (
@@ -460,76 +436,17 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
 
     const d = vDrag.current;
-    const imgD = imgDrag.current;
-
-    // Node verschieben
-    if (d) {
-      const dx = e.clientX - d.startClient.x;
-      const dy = e.clientY - d.startClient.y;
-      setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
-      return;
-    }
-
-    // Bild verschieben / skalieren
-    if (imgD) {
-      const dx = e.clientX - imgD.startClient.x;
-      const dy = e.clientY - imgD.startClient.y;
-
-      if (imgD.mode === "move") {
-        const worldDx = dx / scale;
-        const worldDy = dy / scale;
-        setImages((prev) =>
-          prev.map((im) =>
-            im.id === imgD.id
-              ? {
-                  ...im,
-                  x: imgD.startX + worldDx,
-                  y: imgD.startY + worldDy,
-                }
-              : im
-          )
-        );
-      } else if (imgD.mode === "resize") {
-        const deltaScreen = (dx + dy) / 2;
-        const deltaWorld = deltaScreen / scale;
-
-        const aspect =
-          imgD.startW > 0 && imgD.startH > 0
-            ? imgD.startW / imgD.startH
-            : 1;
-
-        let newW = imgD.startW + deltaWorld;
-        const minSize = 40;
-        if (!Number.isFinite(newW)) newW = imgD.startW;
-        if (newW < minSize) newW = minSize;
-
-        let newH = aspect ? newW / aspect : imgD.startH;
-        if (!Number.isFinite(newH)) newH = imgD.startH;
-        if (newH < minSize) newH = minSize;
-
-        setImages((prev) =>
-          prev.map((im) =>
-            im.id === imgD.id
-              ? {
-                  ...im,
-                  width: newW,
-                  height: newH,
-                }
-              : im
-          )
-        );
-      }
-    }
+    if (!d) return;
+    const dx = e.clientX - d.startClient.x;
+    const dy = e.clientY - d.startClient.y;
+    setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
-
   function onNodePointerUp() {
-    if (!vDrag.current && !imgDrag.current) return;
+    if (!vDrag.current) return;
     vDrag.current = null;
-    imgDrag.current = null;
     nodeDragging.current = false;
     document.documentElement.classList.remove("dragging-global");
   }
-
   useEffect(() => {
     window.addEventListener("pointermove", onNodePointerMove);
     window.addEventListener("pointerup", onNodePointerUp);
@@ -746,89 +663,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       el.removeEventListener("wheel", handler, { capture: true } as any);
     };
   }, [scale, active]);
-
-  /* ---------- Drag & Drop von Bildern auf die Map ---------- */
-
-  const onDragOverMap = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!active) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  };
-
-  const onDropMap = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!active) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const dt = e.dataTransfer;
-    if (!dt) return;
-
-    let file: File | null = null;
-
-    if (dt.items && dt.items.length > 0) {
-      for (const item of Array.from(dt.items)) {
-        if (item.kind === "file") {
-          const f = item.getAsFile();
-          if (f) {
-            file = f;
-            break;
-          }
-        }
-      }
-    } else if (dt.files && dt.files.length > 0) {
-      file = dt.files[0];
-    }
-
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      window.alert("Only image files can be dropped onto the map.");
-      return;
-    }
-
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-    const rect = wrapper.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const worldX = (cx - pan.x) / scale;
-    const worldY = (cy - pan.y) / scale;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
-      if (!dataUrl) return;
-
-      const img = new Image();
-      img.src = dataUrl;
-      img.onload = () => {
-        let w = img.naturalWidth || 400;
-        let h = img.naturalHeight || 300;
-        const maxSide = Math.max(w, h);
-        const maxBase = 600;
-        if (maxSide > maxBase) {
-          const k = maxBase / maxSide;
-          w = Math.round(w * k);
-          h = Math.round(h * k);
-        }
-
-        setImages((prev) => [
-          ...prev,
-          {
-            id: makeId(),
-            x: worldX,
-            y: worldY,
-            width: w,
-            height: h,
-            dataUrl,
-          },
-        ]);
-      };
-      img.onerror = () => {
-        window.alert("Failed to load dropped image.");
-      };
-    };
-    reader.readAsDataURL(file);
-  };
 
   /* ---------- Kontextmenü: Nodes & Edges ---------- */
 
@@ -1173,70 +1007,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     setFileMenu((m) => ({ ...m, open: false }));
   };
 
-  /* ---------- Bild-Upload über File-Dialog ---------- */
-
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-
-  const onImageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      window.alert("Only image files are supported for upload.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
-      if (!dataUrl) return;
-
-      const img = new Image();
-      img.src = dataUrl;
-      img.onload = () => {
-        let w = img.naturalWidth || 400;
-        let h = img.naturalHeight || 300;
-        const maxSide = Math.max(w, h);
-        const maxBase = 600;
-        if (maxSide > maxBase) {
-          const k = maxBase / maxSide;
-          w = Math.round(w * k);
-          h = Math.round(h * k);
-        }
-
-        const wrapper = wrapperRef.current;
-        if (!wrapper) return;
-        const rect = wrapper.getBoundingClientRect();
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
-        const worldX = (cx - pan.x) / scale;
-        const worldY = (cy - pan.y) / scale;
-
-        setImages((prev) => [
-          ...prev,
-          {
-            id: makeId(),
-            x: worldX,
-            y: worldY,
-            width: w,
-            height: h,
-            dataUrl,
-          },
-        ]);
-      };
-      img.onerror = () => {
-        window.alert("Failed to load uploaded image.");
-      };
-    };
-    reader.readAsDataURL(file);
-  };
-
   /* ---------- Export ---------- */
 
   const captureMapAsDataUrl = async (
     format: "jpeg" | "png"
   ): Promise<string> => {
     const el = wrapperRef.current;
-    if (!el) throw new Error("Map wrapper not found");
+       if (!el) throw new Error("Map wrapper not found");
 
     const target = el as HTMLElement;
     const rect = target.getBoundingClientRect();
@@ -1363,17 +1140,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     setPan({ x: 0, y: 0 });
   };
 
-  const openImageUploadDialog = () => {
-    if (!imageInputRef.current) return;
-    imageInputRef.current.value = "";
-    imageInputRef.current.click();
-  };
-
   useImperativeHandle(ref, () => ({
     exportJPG: doDownloadJPG,
     exportPDF: doDownloadPDF,
     resetView,
-    openImageUploadDialog,
   }));
 
   /* ---------- Render-Helpers ---------- */
@@ -1638,8 +1408,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       onPointerUp={onPointerUpMap}
       onPointerCancel={onPointerUpMap}
       onWheel={onWheel}
-      onDragOver={onDragOverMap}
-      onDrop={onDropMap}
     >
       <div
         className="map-pan"
@@ -1713,81 +1481,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               );
             })}
           </svg>
-
-          {/* Pasted / Uploaded Images */}
-          {images.map((img) => (
-            <div
-              key={img.id}
-              className="map-image"
-              style={{
-                transform: `translate(${img.x}px, ${img.y}px) translate(-50%, -50%)`,
-                width: `${img.width}px`,
-                height: `${img.height}px`,
-              }}
-              onPointerDown={(e) => {
-                if (!active) return;
-                if (
-                  e.pointerType === "mouse" ||
-                  e.pointerType === "touch" ||
-                  e.pointerType === "pen"
-                ) {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-                  imgDrag.current = {
-                    id: img.id,
-                    mode: "move",
-                    startClient: { x: e.clientX, y: e.clientY },
-                    startX: img.x,
-                    startY: img.y,
-                    startW: img.width,
-                    startH: img.height,
-                  };
-                  nodeDragging.current = true;
-                  document.documentElement.classList.add("dragging-global");
-                }
-              }}
-              onPointerUp={() => {
-                clearTouchLongPress();
-              }}
-              onPointerCancel={() => {
-                clearTouchLongPress();
-              }}
-            >
-              <img
-                src={img.dataUrl}
-                alt=""
-                draggable={false}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "contain",
-                  pointerEvents: "none",
-                  borderRadius: 8,
-                }}
-              />
-              <div
-                className="map-image-resize-handle"
-                onPointerDown={(e) => {
-                  if (!active) return;
-                  e.stopPropagation();
-                  e.preventDefault();
-                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-                  imgDrag.current = {
-                    id: img.id,
-                    mode: "resize",
-                    startClient: { x: e.clientX, y: e.clientY },
-                    startX: img.x,
-                    startY: img.y,
-                    startW: img.width,
-                    startH: img.height,
-                  };
-                  nodeDragging.current = true;
-                  document.documentElement.classList.add("dragging-global");
-                }}
-              />
-            </div>
-          ))}
 
           {/* Center Node */}
           <div
@@ -2157,16 +1850,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Hidden Image File Input (für Upload-Button in der Top-Bar) */}
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={onImageInputChange}
-      />
-
-      {/* Hidden File Input für PDFs (Node-Attachments) */}
+      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
