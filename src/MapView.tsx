@@ -282,6 +282,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     worldY: number;
   } | null>(null);
 
+  // Pending-Position für Fallback-Dateiupload (Bild)
+  const pendingImageWorldPos = useRef<{ x: number; y: number } | null>(null);
+
   // Linien-Farben:
   //  - branchEdgeColorOverride[rootId]  -> Grundfarbe für alle Edges in diesem Zweig
   //  - edgeColorOverride[parent__child] -> Override für genau eine Edge
@@ -808,6 +811,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputTargetNodeId = useRef<string | null>(null);
 
+  // Hidden Image-File Input (Fallback)
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+
   const openColorMenuForNode = (
     clientX: number,
     clientY: number,
@@ -1145,18 +1151,68 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     setFileMenu((m) => ({ ...m, open: false }));
   };
 
-  /* ---------- Bild aus Zwischenablage einfügen ---------- */
+  /* ---------- Bild-Helfer: MapImage erzeugen ---------- */
+
+  const createMapImageAtWorldPos = async (
+    dataUrl: string,
+    worldX: number,
+    worldY: number
+  ) => {
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Failed to load image"));
+    });
+
+    let w = img.naturalWidth || 400;
+    let h = img.naturalHeight || 300;
+    const maxSide = Math.max(w, h);
+    const maxBase = 600;
+    if (maxSide > maxBase) {
+      const k = maxBase / maxSide;
+      w = Math.round(w * k);
+      h = Math.round(h * k);
+    }
+
+    setImages((prev) => [
+      ...prev,
+      {
+        id: makeId(),
+        x: worldX,
+        y: worldY,
+        width: w,
+        height: h,
+        dataUrl,
+      },
+    ]);
+  };
+
+  /* ---------- Bild aus Zwischenablage einfügen + Fallback ---------- */
 
   const handlePasteImageClick = async () => {
     if (!pasteButton || !pasteButton.open) return;
 
     const { worldX, worldY } = pasteButton;
+    pendingImageWorldPos.current = { x: worldX, y: worldY };
+
     const navClipboard: any = (navigator as any).clipboard;
 
+    const openFileFallback = () => {
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+        imageInputRef.current.click();
+        setPasteButton(null);
+      } else {
+        window.alert(
+          "Your browser does not allow clipboard image access and no file dialog is available."
+        );
+      }
+    };
+
     if (!navClipboard || typeof navClipboard.read !== "function") {
-      window.alert(
-        "Your browser does not support pasting images from the clipboard."
-      );
+      // Browser kann clipboard.read() nicht -> direkt Dateidialog
+      openFileFallback();
       return;
     }
 
@@ -1177,47 +1233,43 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               reader.readAsDataURL(blob);
             });
 
-            const img = new Image();
-            img.src = dataUrl;
-            await new Promise<void>((resolve, reject) => {
-              img.onload = () => resolve();
-              img.onerror = () => reject(new Error("Failed to load image"));
-            });
-
-            let w = img.naturalWidth || 400;
-            let h = img.naturalHeight || 300;
-            const maxSide = Math.max(w, h);
-            const maxBase = 600;
-            if (maxSide > maxBase) {
-              const k = maxBase / maxSide;
-              w = Math.round(w * k);
-              h = Math.round(h * k);
-            }
-
-            setImages((prev) => [
-              ...prev,
-              {
-                id: makeId(),
-                x: worldX,
-                y: worldY,
-                width: w,
-                height: h,
-                dataUrl,
-              },
-            ]);
-
+            await createMapImageAtWorldPos(dataUrl, worldX, worldY);
             setPasteButton(null);
             return;
           }
         }
       }
 
-      window.alert("No image found in clipboard.");
+      // Kein Bild im Clipboard gefunden -> Fallback auf Dateiupload
+      openFileFallback();
     } catch {
-      window.alert(
-        "Pasting image failed. Your browser might not allow clipboard image access."
-      );
+      // Fehler (Permissions, CORS, whatever) -> Fallback
+      openFileFallback();
     }
+  };
+
+  /* ---------- Bild-Dateiupload (Fallback) ---------- */
+
+  const onImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      window.alert("Only image files are supported here.");
+      return;
+    }
+
+    const worldPos = pendingImageWorldPos.current || { x: 0, y: 0 };
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) return;
+
+      await createMapImageAtWorldPos(dataUrl, worldPos.x, worldPos.y);
+      setPasteButton(null);
+    };
+    reader.readAsDataURL(file);
   };
 
   /* ---------- Export ---------- */
@@ -2080,7 +2132,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                           </span>
                           <span
                             className="ctxmenu-fileName"
-                            style={{ color: "#e5e7eb" }} // weiße/helle Schrift
+                            style={{ color: "#e5e7eb" }}
                           >
                             {att.name}
                           </span>
@@ -2161,13 +2213,22 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Hidden File Input */}
+      {/* Hidden File Input für PDFs */}
       <input
         ref={fileInputRef}
         type="file"
         accept="application/pdf"
         style={{ display: "none" }}
         onChange={onFileInputChange}
+      />
+
+      {/* Hidden File Input für Bilder (Fallback) */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={onImageFileChange}
       />
     </div>
   );
