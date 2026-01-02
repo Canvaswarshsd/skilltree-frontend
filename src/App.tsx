@@ -82,6 +82,13 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"edit" | "map">("edit");
 
+  // TAB TITLE: dynamic browser tab title
+  useEffect(() => {
+    const appName = "OpenTaskMap";
+    const t = projectTitle.trim().replace(/\s+/g, " ");
+    document.title = t ? `${t} ${appName}` : appName;
+  }, [projectTitle]);
+
   // Map-States (controlled)
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -688,8 +695,7 @@ function Row({
   const isDroppable = (srcId: string | null) =>
     !!srcId && srcId !== task.id && !isDescendant(tasks, task.id, srcId);
 
-  const isSelectedForRemove =
-    removeMode && removeSelection.has(task.id);
+  const isSelectedForRemove = removeMode && removeSelection.has(task.id);
 
   const longPressTimer = useRef<number | null>(null);
   const clearTimer = () => {
@@ -701,8 +707,7 @@ function Row({
 
   const handlePointerDownDragZone = (e: React.PointerEvent) => {
     if (removeMode) return; // im Remove-Modus kein Drag
-    const rowEl = (e.currentTarget as HTMLElement)
-      .parentElement as HTMLElement;
+    const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
     const id = rowEl.dataset.taskId!;
     editGesture.current = {
       pointerId: e.pointerId,
