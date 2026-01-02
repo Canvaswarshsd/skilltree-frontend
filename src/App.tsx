@@ -84,7 +84,7 @@ export default function App() {
 
   // TAB TITLE: dynamic browser tab title
   useEffect(() => {
-    const appName = "OpenTaskMap";
+    const appName = "OpenTaskmap";
     const t = projectTitle.trim().replace(/\s+/g, " ");
     document.title = t ? `${t} ${appName}` : appName;
   }, [projectTitle]);
