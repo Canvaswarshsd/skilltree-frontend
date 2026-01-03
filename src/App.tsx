@@ -585,9 +585,9 @@ export default function App() {
                 </button>
                 <button
                   className="save-item"
-                  onClick={() => mapRef.current?.exportJPG()}
+                  onClick={() => mapRef.current?.exportPNG()}
                 >
-                  JPG
+                  PNG
                 </button>
               </div>
             )}

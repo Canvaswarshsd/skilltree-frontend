@@ -28,7 +28,12 @@ export type Task = {
 };
 
 export type MapApi = {
-  exportJPG: () => Promise<void>; // bleibt kompatibel, lädt aber jetzt PNG
+  // NEU: PNG (Menu-Label soll auf "PNG" umgestellt werden)
+  exportPNG: () => Promise<void>;
+
+  // Kompatibilität: alte Aufrufer, die noch exportJPG nutzen, funktionieren weiter.
+  exportJPG: () => Promise<void>;
+
   exportPDF: () => Promise<void>;
   resetView: () => void;
 };
@@ -79,9 +84,6 @@ const BRANCH_COLORS = [
   "#f43f5e",
 ];
 
-/**
- * Erweitertes, logisch sortiertes Farbspektrum.
- */
 const COLOR_SWATCHES = [
   "#fb923c",
   "#f97316",
@@ -143,6 +145,10 @@ const MAXLEN_ROOT_AND_CHILD = 12;
 /* Long-Press-Einstellungen für Touch */
 const TOUCH_LONGPRESS_DELAY_MS = 450;
 const TOUCH_LONGPRESS_MOVE_CANCEL_PX = 12;
+
+/* Export: Minimaler „PowerPoint-tauglicher“ Weißrand */
+const EXPORT_MIN_PADDING_PX = 18;
+const EXPORT_PADDING_EPS_PX = 0.5;
 
 /* ---------- Geometrie ---------- */
 function segmentBetweenCircles(
@@ -421,7 +427,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     document.documentElement.classList.add("dragging-global");
   }
   function onNodePointerMove(e: PointerEvent) {
-    // Wenn wir uns beim Touch deutlich bewegen, Long-Press abbrechen
     if (
       e.pointerType === "touch" &&
       touchLongPressTimer.current !== null &&
@@ -472,7 +477,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     startScale: number;
   } | null>(null);
 
-  // Flag, damit der Center-Touch die Long-Press-Löschung beim Map-PointerDown einmal überspringt
   const skipClearLongPressOnNextPointerDown = useRef(false);
 
   function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -531,7 +535,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onPointerMoveMap = (e: React.PointerEvent) => {
     if (!active) return;
 
-    // auch hier: wenn beim Touch weit bewegt wird, Long-Press abbrechen
     if (
       e.pointerType === "touch" &&
       touchLongPressTimer.current !== null &&
@@ -594,7 +597,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     zoomAt(e.clientX, e.clientY, target);
   };
 
-  // Safari gesture fallback
   useEffect(() => {
     if (!active) return;
     const onGestureChange = (ev: any) => {
@@ -613,7 +615,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return () => window.removeEventListener("gesturechange", onGestureChange);
   }, [scale, active, pan.x, pan.y]);
 
-  // Global-Zoom blocken
   useEffect(() => {
     if (!active) return;
     const onGlobalWheel = (ev: WheelEvent) => {
@@ -643,7 +644,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [active]);
 
-  // Native Wheel Listener (Teams)
   useEffect(() => {
     if (!active) return;
     const el = wrapperRef.current;
@@ -686,7 +686,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     tab: "color",
   });
 
-  // Kontextmenü für einzelne Attachments (Download / Delete)
   const [fileMenu, setFileMenu] = useState<{
     open: boolean;
     x: number;
@@ -753,9 +752,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   };
 
   useEffect(() => {
-    if (removeMode && ctxMenu.open) {
-      closeColorMenu();
-    }
+    if (removeMode && ctxMenu.open) closeColorMenu();
   }, [removeMode, ctxMenu.open]);
 
   useEffect(() => {
@@ -780,7 +777,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [ctxMenu.open]);
 
-  // File-Menü (Download / Delete) schließen bei Click outside / ESC
   useEffect(() => {
     if (!fileMenu.open) return;
 
@@ -789,14 +785,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const clickedInside = path.some((el) =>
         (el as HTMLElement)?.classList?.contains?.("filemenu")
       );
-      if (!clickedInside) {
-        setFileMenu((m) => ({ ...m, open: false }));
-      }
+      if (!clickedInside) setFileMenu((m) => ({ ...m, open: false }));
     };
     const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setFileMenu((m) => ({ ...m, open: false }));
-      }
+      if (e.key === "Escape") setFileMenu((m) => ({ ...m, open: false }));
     };
 
     window.addEventListener("pointerdown", onDown);
@@ -810,7 +802,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const applyColor = (hex: string) => {
     if (!ctxMenu.open) return;
 
-    // Node-Fall
     if (ctxMenu.kind === "node") {
       if (!ctxMenu.nodeId) return;
 
@@ -826,10 +817,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       }
 
       if (t.parentId === null) {
-        // Root-Bubble-Farbe (nur Node / Branch-Bubbles)
         setBranchColorOverride((prev) => ({ ...prev, [t.id]: hex }));
       } else {
-        // Child: nur dieser Node
         setTasks((prev) =>
           prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x))
         );
@@ -838,7 +827,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       return;
     }
 
-    // Edge-Fall
     if (ctxMenu.kind === "edge") {
       const parentId = ctxMenu.edgeParentId;
       const childId = ctxMenu.edgeChildId;
@@ -848,14 +836,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       }
 
       if (parentId === CENTER_ID) {
-        // oberster Strang: Linienfarbe für den ganzen Zweig,
-        // Bubbles bleiben unberührt
         setBranchEdgeColorOverride((prev) => ({
           ...prev,
           [childId]: hex,
         }));
       } else {
-        // nur diese eine Edge (Root->Child oder tiefer)
         const key = edgeKey(parentId, childId);
         setEdgeColorOverride((prev) => ({ ...prev, [key]: hex }));
       }
@@ -881,13 +866,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const effective = computeEffectiveDoneForTaskId(id);
 
     let nextExplicit: boolean;
-    if (explicit === undefined) {
-      nextExplicit = !effective;
-    } else if (explicit === true) {
-      nextExplicit = false;
-    } else {
-      nextExplicit = true;
-    }
+    if (explicit === undefined) nextExplicit = !effective;
+    else if (explicit === true) nextExplicit = false;
+    else nextExplicit = true;
 
     setTasks((prev) =>
       prev.map((x) => (x.id === id ? { ...x, done: nextExplicit } : x))
@@ -957,7 +938,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeId: string,
     attachmentId: string
   ) => {
-    // Toggle: wenn dasselbe Attachment schon offen ist, Menü schließen
     setFileMenu((prev) => {
       if (
         prev.open &&
@@ -996,7 +976,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const { nodeId, attachmentId } = fileMenu;
     if (!nodeId || !attachmentId) return;
 
-    setAttachmentsForNode(nodeId, (prev) => prev.filter((a) => a.id !== attachmentId));
+    setAttachmentsForNode(nodeId, (prev) =>
+      prev.filter((a) => a.id !== attachmentId)
+    );
     setFileMenu((m) => ({ ...m, open: false }));
   };
 
@@ -1017,22 +999,27 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       target.querySelectorAll<HTMLElement>(".map-export-hide")
     );
     const prevVisibility = exportHudNodes.map((n) => n.style.visibility);
-    exportHudNodes.forEach((n) => {
-      n.style.visibility = "hidden";
-    });
+    exportHudNodes.forEach((n) => (n.style.visibility = "hidden"));
 
     const originalScale = scale;
     const originalPan = { ...pan };
     let viewAdjusted = false;
 
+    const wait2Frames = async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      );
+    };
+
+    const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+
     try {
-      // ---- Fit-to-Content: nur anpassen, wenn nötig (und dabei auf Wunsch auch "optimal füllen") ----
-      // Wir ermitteln die Welt-Bounds über DOM-Rects der Nodes, invertiert über (pan, scale).
       const nodes = Array.from(
         target.querySelectorAll<HTMLElement>(".map-origin .skill-node")
       );
 
       if (nodes.length > 0) {
+        // Screen-Bounds der Nodes innerhalb des Wrappers
         let minX = Number.POSITIVE_INFINITY;
         let minY = Number.POSITIVE_INFINITY;
         let maxX = Number.NEGATIVE_INFINITY;
@@ -1044,62 +1031,101 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           const y1 = r.top - rect.top;
           const x2 = r.right - rect.left;
           const y2 = r.bottom - rect.top;
-
           if (x1 < minX) minX = x1;
           if (y1 < minY) minY = y1;
           if (x2 > maxX) maxX = x2;
           if (y2 > maxY) maxY = y2;
         }
 
-        // Screen-Bounds -> World-Bounds
-        const worldMinX = (minX - pan.x) / (scale || 1);
-        const worldMinY = (minY - pan.y) / (scale || 1);
-        const worldMaxX = (maxX - pan.x) / (scale || 1);
-        const worldMaxY = (maxY - pan.y) / (scale || 1);
+        const margins = {
+          left: minX,
+          top: minY,
+          right: rect.width - maxX,
+          bottom: rect.height - maxY,
+        };
 
-        const worldW = Math.max(1, worldMaxX - worldMinX);
-        const worldH = Math.max(1, worldMaxY - worldMinY);
+        const minPad = EXPORT_MIN_PADDING_PX;
+        const needPad =
+          margins.left < minPad - EXPORT_PADDING_EPS_PX ||
+          margins.top < minPad - EXPORT_PADDING_EPS_PX ||
+          margins.right < minPad - EXPORT_PADDING_EPS_PX ||
+          margins.bottom < minPad - EXPORT_PADDING_EPS_PX;
 
-        const PADDING = 56; // Export-Rand, damit nichts "klebt"
-        const availW = Math.max(1, rect.width - PADDING * 2);
-        const availH = Math.max(1, rect.height - PADDING * 2);
+        if (needPad) {
+          // 1) Erst versuchen: nur pan korrigieren (keine Scale-Änderung)
+          let dx = 0;
+          let dy = 0;
 
-        const fitScale = Math.min(availW / worldW, availH / worldH);
-        const desiredScale = Math.min(MAX_Z, Math.max(MIN_Z, fitScale));
+          if (margins.left < minPad) dx += minPad - margins.left;
+          if (margins.right < minPad) dx -= minPad - margins.right;
 
-        const worldCx = (worldMinX + worldMaxX) / 2;
-        const worldCy = (worldMinY + worldMaxY) / 2;
-        const screenCx = rect.width / 2;
-        const screenCy = rect.height / 2;
+          if (margins.top < minPad) dy += minPad - margins.top;
+          if (margins.bottom < minPad) dy -= minPad - margins.bottom;
 
-        const desiredPanX = screenCx - worldCx * desiredScale;
-        const desiredPanY = screenCy - worldCy * desiredScale;
+          if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+            setPan({ x: pan.x + dx, y: pan.y + dy });
+            viewAdjusted = true;
 
-        const eps = 0.0005;
-        const panDiff =
-          Math.abs(desiredPanX - pan.x) > 0.5 || Math.abs(desiredPanY - pan.y) > 0.5;
-        const scaleDiff = Math.abs(desiredScale - scale) > eps;
+            // Bounds „mitziehen“ (pan shift verschiebt Screen-Bounds 1:1)
+            minX += dx;
+            maxX += dx;
+            minY += dy;
+            maxY += dy;
 
-        // Nur wenn wirklich nötig (oder wenn wir die Map "schöner füllen" wollen, sobald sie nicht passt):
-        // Hier: Wenn Bounds NICHT vollständig im Viewport sind, passen wir an.
-        const overflow =
-          minX < PADDING ||
-          minY < PADDING ||
-          maxX > rect.width - PADDING ||
-          maxY > rect.height - PADDING;
+            await wait2Frames();
+          }
 
-        if (overflow && (panDiff || scaleDiff)) {
-          setScale(desiredScale);
-          setPan({ x: desiredPanX, y: desiredPanY });
-          viewAdjusted = true;
+          const marginsAfterPan = {
+            left: minX,
+            top: minY,
+            right: rect.width - maxX,
+            bottom: rect.height - maxY,
+          };
 
-          await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-          );
+          const stillNeedPad =
+            marginsAfterPan.left < minPad - EXPORT_PADDING_EPS_PX ||
+            marginsAfterPan.top < minPad - EXPORT_PADDING_EPS_PX ||
+            marginsAfterPan.right < minPad - EXPORT_PADDING_EPS_PX ||
+            marginsAfterPan.bottom < minPad - EXPORT_PADDING_EPS_PX;
+
+          if (stillNeedPad) {
+            // 2) Wenn Pan nicht reicht: Scale runter, bis es mit minPad reinpasst
+            const worldMinX = (minX - (pan.x + dx)) / (scale || 1);
+            const worldMinY = (minY - (pan.y + dy)) / (scale || 1);
+            const worldMaxX = (maxX - (pan.x + dx)) / (scale || 1);
+            const worldMaxY = (maxY - (pan.y + dy)) / (scale || 1);
+
+            const worldW = Math.max(1, worldMaxX - worldMinX);
+            const worldH = Math.max(1, worldMaxY - worldMinY);
+
+            const availW = Math.max(1, rect.width - minPad * 2);
+            const availH = Math.max(1, rect.height - minPad * 2);
+
+            const fitScale = Math.min(availW / worldW, availH / worldH);
+            const desiredScale = clamp(fitScale, MIN_Z, MAX_Z);
+
+            // WICHTIG: niemals „reinzoomen“ beim Export – nur runter, wenn nötig
+            const nextScale = Math.min(scale, desiredScale);
+
+            const worldCx = (worldMinX + worldMaxX) / 2;
+            const worldCy = (worldMinY + worldMaxY) / 2;
+
+            const screenCx = rect.width / 2;
+            const screenCy = rect.height / 2;
+
+            const desiredPanX = screenCx - worldCx * nextScale;
+            const desiredPanY = screenCy - worldCy * nextScale;
+
+            setScale(nextScale);
+            setPan({ x: desiredPanX, y: desiredPanY });
+            viewAdjusted = true;
+
+            await wait2Frames();
+          }
         }
       }
 
-      // Höhere Export-Auflösung (schärfer): mindestens 2, typischerweise 2–4
+      // Schärfer: höheres pixelRatio
       const pixelRatio = Math.max(
         2,
         Math.min(4, (window.devicePixelRatio || 1) * 2)
@@ -1119,9 +1145,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       }
       return dataUrl;
     } finally {
-      exportHudNodes.forEach((n, i) => {
-        n.style.visibility = prevVisibility[i];
-      });
+      exportHudNodes.forEach((n, i) => (n.style.visibility = prevVisibility[i]));
       if (viewAdjusted) {
         setScale(originalScale);
         setPan(originalPan);
@@ -1129,7 +1153,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
   };
 
-  // Export-Button "JPG" -> lädt jetzt PNG (verlustfrei, schärfer)
   const doDownloadPNG = async () => {
     try {
       const dataUrl = await captureMapAsPngDataUrl();
@@ -1183,7 +1206,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   };
 
   useImperativeHandle(ref, () => ({
-    exportJPG: doDownloadPNG, // kompatibel, aber PNG
+    exportPNG: doDownloadPNG,
+    exportJPG: doDownloadPNG, // Alias (Menu kann umgestellt werden, ohne dass Alt-Code bricht)
     exportPDF: doDownloadPDF,
     resetView,
   }));
@@ -1193,13 +1217,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
     const lines = splitTitleLines(title, maxLen, 3);
     return lines.map((ln, i) => (
-      <span key={i} style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}>
+      <span
+        key={i}
+        style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}
+      >
         {ln}
       </span>
     ));
   }
 
-  // Eine Edge = sichtbare Linie + dicke unsichtbare Hit-Line
   function renderEdgeLine(
     keyBase: string,
     parentId: string,
@@ -1230,7 +1256,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               if (removeMode) return;
               e.stopPropagation();
               e.preventDefault();
-              startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
+              startTouchLongPressForEdge(
+                parentId,
+                childId,
+                e.clientX,
+                e.clientY
+              );
             }
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1295,7 +1326,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
+        ...renderChildLinesWithOffsets(
+          kid.id,
+          cx,
+          cy,
+          R_CHILD,
+          edgeBaseColor,
+          px,
+          py
+        )
       );
     });
 
@@ -1332,8 +1371,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const cy = cyBase + ko.y;
 
       const task = getTask(kid.id);
-      const explicitDone = typeof task?.done === "boolean" ? task.done : undefined;
-      const isDone = explicitDone !== undefined ? explicitDone : inheritedDone;
+      const explicitDone =
+        typeof task?.done === "boolean" ? task.done : undefined;
+      const isDone =
+        explicitDone !== undefined ? explicitDone : inheritedDone;
 
       const bubbleColor = (() => {
         const t = getTask(kid.id);
@@ -1367,12 +1408,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             if (e.pointerType === "touch") {
               e.stopPropagation();
               e.preventDefault();
-              // Touch: Drag + Long-Press für Farbmenü
               startNodeDrag(kid.id, e);
               startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
               return;
             }
-            // Maus: direkt Drag
             startNodeDrag(kid.id, e);
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1382,7 +1421,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         >
           {removeMode && (
             <div className="remove-checkbox" aria-hidden="true">
-              {isSelectedForRemove && <div className="remove-checkbox-mark">✕</div>}
+              {isSelectedForRemove && (
+                <div className="remove-checkbox-mark">✕</div>
+              )}
             </div>
           )}
           {isDone && (
@@ -1413,7 +1454,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   /* ---------- JSX ---------- */
   return (
     <div
-      className={"skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")}
+      className={
+        "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
+      }
       ref={wrapperRef}
       style={{
         touchAction: "none",
@@ -1435,7 +1478,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       >
         <div className="map-origin">
           <svg className="map-svg" viewBox="-2000 -2000 4000 4000">
-            {/* Center -> Root Edges */}
             {roots.map((root, i) => {
               const total = Math.max(roots.length, 1);
               const ang = (i / total) * Math.PI * 2;
@@ -1444,7 +1486,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               const ro = getOffset(root.id);
               const rx = rxBase + ro.x;
               const ry = ryBase + ro.y;
-              const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
+              const seg = segmentBetweenCircles(
+                0,
+                0,
+                R_CENTER,
+                rx,
+                ry,
+                R_ROOT
+              );
 
               const baseBubbleColor =
                 branchColorOverride[root.id] ??
@@ -1464,7 +1513,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               );
             })}
 
-            {/* Child-Edges */}
             {roots.flatMap((root, i) => {
               const total = Math.max(roots.length, 1);
               const ang = (i / total) * Math.PI * 2;
@@ -1492,7 +1540,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             })}
           </svg>
 
-          {/* Center Node */}
           <div
             className="skill-node center-node"
             style={{ background: centerColor }}
@@ -1506,11 +1553,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             onPointerDown={(e) => {
               if (removeMode) return;
               if (e.pointerType === "touch") {
-                // Kein stopPropagation, damit das Map-Panning starten kann.
                 e.preventDefault();
-                // Diesen einen PointerDown nicht den Long-Press löschen lassen:
                 skipClearLongPressOnNextPointerDown.current = true;
-                startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
+                startTouchLongPressForNode(
+                  CENTER_ID,
+                  e.clientX,
+                  e.clientY
+                );
               }
             }}
             onPointerUp={() => clearTouchLongPress()}
@@ -1525,7 +1574,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             {renderTitleAsSpans(projectTitle || "Project", MAXLEN_CENTER)}
           </div>
 
-          {/* Roots + Children */}
           {roots.map((root, i) => {
             const total = Math.max(roots.length, 1);
             const ang = (i / total) * Math.PI * 2;
@@ -1542,9 +1590,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             const rootTask = getTask(root.id);
             const explicitRootDone =
               typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-            const rootDone = explicitRootDone !== undefined ? explicitRootDone : centerDone;
+            const rootDone =
+              explicitRootDone !== undefined ? explicitRootDone : centerDone;
 
-            const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
+            const isRootSelectedForRemove =
+              removeMode && removeSelection.has(root.id);
 
             return (
               <React.Fragment key={`root-node-${root.id}`}>
@@ -1560,7 +1610,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   }}
                   data-done={rootDone ? "true" : "false"}
                   data-remove-mode={removeMode ? "true" : "false"}
-                  data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
+                  data-remove-selected={
+                    isRootSelectedForRemove ? "true" : "false"
+                  }
                   onPointerDown={(e) => {
                     if (removeMode) {
                       e.stopPropagation();
@@ -1571,12 +1623,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     if (e.pointerType === "touch") {
                       e.stopPropagation();
                       e.preventDefault();
-                      // Touch: Drag + Long-Press
                       startNodeDrag(root.id, e);
-                      startTouchLongPressForNode(root.id, e.clientX, e.clientY);
+                      startTouchLongPressForNode(
+                        root.id,
+                        e.clientX,
+                        e.clientY
+                      );
                       return;
                     }
-                    // Maus
                     startNodeDrag(root.id, e);
                   }}
                   onPointerUp={() => clearTouchLongPress()}
@@ -1599,27 +1653,36 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   {renderTitleAsSpans(root.title, MAXLEN_ROOT_AND_CHILD)}
                 </div>
 
-                {renderChildNodesWithOffsets(root.id, rx, ry, rootBubbleColor, 0, 0, rootDone)}
+                {renderChildNodesWithOffsets(
+                  root.id,
+                  rx,
+                  ry,
+                  rootBubbleColor,
+                  0,
+                  0,
+                  rootDone
+                )}
               </React.Fragment>
             );
           })}
         </div>
       </div>
 
-      {/* Progress-HUD */}
       {totalTasks > 0 && (
         <div className="map-progress map-export-hide">
           <div className="map-progress-label">Progress</div>
           <div className="map-progress-row">
             <div className="map-progress-bar" aria-hidden="true">
-              <div className="map-progress-bar-fill" style={{ width: `${progressPercent}%` }} />
+              <div
+                className="map-progress-bar-fill"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
             <div className="map-progress-value">{progressPercent}%</div>
           </div>
         </div>
       )}
 
-      {/* Kontextmenü (Color / Files) */}
       {ctxMenu.open && !removeMode && (
         <div
           className="ctxmenu"
@@ -1629,29 +1692,38 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             minWidth: 260,
             minHeight: 190,
           }}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-          }}
+          onPointerDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
           <div className="ctxmenu-header">
             {ctxMenu.kind === "node" ? (
-              <div className="ctxmenu-tabRow" style={{ display: "flex", gap: 10 }}>
+              <div
+                className="ctxmenu-tabRow"
+                style={{ display: "flex", gap: 10 }}
+              >
                 <button
                   className={
                     "ctxmenu-doneBtn ctxmenu-tabBtn" +
-                    (ctxMenu.tab === "color" ? " ctxmenu-tabBtn-active" : "")
+                    (ctxMenu.tab === "color"
+                      ? " ctxmenu-tabBtn-active"
+                      : "")
                   }
-                  onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "color" }))}
+                  onClick={() =>
+                    setCtxMenu((prev) => ({ ...prev, tab: "color" }))
+                  }
                 >
                   Color
                 </button>
                 <button
                   className={
                     "ctxmenu-doneBtn ctxmenu-tabBtn" +
-                    (ctxMenu.tab === "files" ? " ctxmenu-tabBtn-active" : "")
+                    (ctxMenu.tab === "files"
+                      ? " ctxmenu-tabBtn-active"
+                      : "")
                   }
-                  onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "files" }))}
+                  onClick={() =>
+                    setCtxMenu((prev) => ({ ...prev, tab: "files" }))
+                  }
                 >
                   Files
                 </button>
@@ -1678,7 +1750,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           </div>
 
           <div className="ctxmenu-body">
-            {ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
+            {ctxMenu.kind === "node" &&
+            ctxMenu.tab === "files" &&
+            ctxMenu.nodeId ? (
               <div className="ctxmenu-filesView">
                 <button
                   className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
@@ -1687,7 +1761,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   + Add PDF
                 </button>
                 {getAttachmentsForNode(ctxMenu.nodeId).length === 0 ? (
-                  <div className="ctxmenu-filesEmpty">No PDFs attached yet.</div>
+                  <div className="ctxmenu-filesEmpty">
+                    No PDFs attached yet.
+                  </div>
                 ) : (
                   <ul
                     className="ctxmenu-fileList"
@@ -1701,26 +1777,36 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                       <li key={att.id} className="ctxmenu-fileItem">
                         <button
                           className="ctxmenu-fileButton"
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                          }}
+                          style={{ background: "transparent", border: "none" }}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
+                            openFileContextMenu(
+                              e.clientX,
+                              e.clientY,
+                              ctxMenu.nodeId!,
+                              att.id
+                            );
                           }}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
+                            openFileContextMenu(
+                              e.clientX,
+                              e.clientY,
+                              ctxMenu.nodeId!,
+                              att.id
+                            );
                           }}
                         >
                           <span className="ctxmenu-fileBullet">•</span>
                           <span className="ctxmenu-fileIcon" aria-hidden="true">
                             📄
                           </span>
-                          <span className="ctxmenu-fileName" style={{ color: "#e5e7eb" }}>
+                          <span
+                            className="ctxmenu-fileName"
+                            style={{ color: "#e5e7eb" }}
+                          >
                             {att.name}
                           </span>
                         </button>
@@ -1750,7 +1836,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Kontextmenü für einzelne Attachments (Download / Delete) */}
       {fileMenu.open && (
         <div
           className="ctxmenu filemenu"
@@ -1800,7 +1885,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
