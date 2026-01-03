@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import MapView, { MapApi, Task as MapTask } from "./MapView";
+import { Analytics } from "@vercel/analytics/react";
 
 type Task = MapTask;
 
@@ -651,6 +652,8 @@ export default function App() {
           />
         )}
       </div>
+	        <Analytics />
+
     </div>
   );
 }
