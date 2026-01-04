@@ -1942,14 +1942,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         <div
           ref={exportRootRef}
           style={{
-            position: "fixed",
-            left: "-100000px",
-            top: 0,
-            width: exportLayout.width,
-            height: exportLayout.height,
-            background: "#ffffff",
-            overflow: "hidden",
-          }}
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: exportLayout.width,
+  height: exportLayout.height,
+  background: "#ffffff",
+  overflow: "hidden",
+
+  // wichtig: NICHT offscreen verschieben (sonst weißer Export)
+  // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
+  opacity: 0,
+  pointerEvents: "none",
+}}
+
           aria-hidden="true"
         >
           {/* Edges */}
