@@ -28,7 +28,7 @@ export type Task = {
 };
 
 export type MapApi = {
-  // NEU: PNG (Menu-Label soll auf "PNG" umgestellt werden)
+  // PNG ist jetzt das Primärformat
   exportPNG: () => Promise<void>;
 
   // Kompatibilität: alte Aufrufer, die noch exportJPG nutzen, funktionieren weiter.
@@ -146,9 +146,16 @@ const MAXLEN_ROOT_AND_CHILD = 12;
 const TOUCH_LONGPRESS_DELAY_MS = 450;
 const TOUCH_LONGPRESS_MOVE_CANCEL_PX = 12;
 
-/* Export: Minimaler „PowerPoint-tauglicher“ Weißrand */
+/* Export: Minimaler Weißrand + Shadow-Sicherheitsrand */
 const EXPORT_MIN_PADDING_PX = 18;
-const EXPORT_PADDING_EPS_PX = 0.5;
+
+// Box-shadow in App.css: 0 12px 36px
+// Horizontal ~36px, oben ~24px, unten ~48px (Blur +/- Offset)
+const EXPORT_SHADOW_PAD_X = 36;
+const EXPORT_SHADOW_PAD_TOP = 24;
+const EXPORT_SHADOW_PAD_BOTTOM = 48;
+
+const EXPORT_MAX_PIXELS_ON_LONG_SIDE = 12000; // dynamische pixelRatio-Bremse
 
 /* ---------- Geometrie ---------- */
 function segmentBetweenCircles(
@@ -233,6 +240,38 @@ function makeId() {
     .slice(2, 8)}`;
 }
 
+/* ---------- Export Layout Types ---------- */
+type ExportNode = {
+  id: string;
+  kind: "center" | "root" | "child";
+  x: number;
+  y: number;
+  r: number;
+  bubbleColor: string;
+  title: string;
+  done: boolean;
+  removeSelected: boolean;
+};
+
+type ExportEdge = {
+  parentId: string;
+  childId: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+};
+
+type ExportLayout = {
+  width: number;
+  height: number;
+  originX: number;
+  originY: number;
+  nodes: ExportNode[];
+  edges: ExportEdge[];
+};
+
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const {
@@ -266,8 +305,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   );
 
   // Linien-Farben:
-  //  - branchEdgeColorOverride[rootId]  -> Grundfarbe für alle Edges in diesem Zweig
-  //  - edgeColorOverride[parent__child] -> Override für genau eine Edge
   const [branchEdgeColorOverride, setBranchEdgeColorOverride] = useState<
     Record<string, string>
   >({});
@@ -597,6 +634,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     zoomAt(e.clientX, e.clientY, target);
   };
 
+  // Safari gesture fallback
   useEffect(() => {
     if (!active) return;
     const onGestureChange = (ev: any) => {
@@ -615,6 +653,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return () => window.removeEventListener("gesturechange", onGestureChange);
   }, [scale, active, pan.x, pan.y]);
 
+  // Global-Zoom blocken
   useEffect(() => {
     if (!active) return;
     const onGlobalWheel = (ev: WheelEvent) => {
@@ -644,6 +683,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
   }, [active]);
 
+  // Native Wheel Listener
   useEffect(() => {
     if (!active) return;
     const el = wrapperRef.current;
@@ -750,6 +790,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }));
     setFileMenu((m) => ({ ...m, open: false }));
   };
+
+  // wichtig: wenn MapView offscreen (active=false), dürfen keine fixed Menüs/HUD sichtbar bleiben
+  useEffect(() => {
+    if (!active) {
+      closeColorMenu();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   useEffect(() => {
     if (removeMode && ctxMenu.open) closeColorMenu();
@@ -982,236 +1030,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     setFileMenu((m) => ({ ...m, open: false }));
   };
 
-  /* ---------- Export ---------- */
-
-  const captureMapAsPngDataUrl = async (): Promise<string> => {
-    const el = wrapperRef.current;
-    if (!el) throw new Error("Map wrapper not found");
-
-    const target = el as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    if (!rect.width || !rect.height) {
-      throw new Error("Map has zero size – cannot export image");
-    }
-
-    // HUD im Export ausblenden
-    const exportHudNodes = Array.from(
-      target.querySelectorAll<HTMLElement>(".map-export-hide")
-    );
-    const prevVisibility = exportHudNodes.map((n) => n.style.visibility);
-    exportHudNodes.forEach((n) => (n.style.visibility = "hidden"));
-
-    const originalScale = scale;
-    const originalPan = { ...pan };
-    let viewAdjusted = false;
-
-    const wait2Frames = async () => {
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      );
-    };
-
-    const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-
-    try {
-      const nodes = Array.from(
-        target.querySelectorAll<HTMLElement>(".map-origin .skill-node")
-      );
-
-      if (nodes.length > 0) {
-        // Screen-Bounds der Nodes innerhalb des Wrappers
-        let minX = Number.POSITIVE_INFINITY;
-        let minY = Number.POSITIVE_INFINITY;
-        let maxX = Number.NEGATIVE_INFINITY;
-        let maxY = Number.NEGATIVE_INFINITY;
-
-        for (const n of nodes) {
-          const r = n.getBoundingClientRect();
-          const x1 = r.left - rect.left;
-          const y1 = r.top - rect.top;
-          const x2 = r.right - rect.left;
-          const y2 = r.bottom - rect.top;
-          if (x1 < minX) minX = x1;
-          if (y1 < minY) minY = y1;
-          if (x2 > maxX) maxX = x2;
-          if (y2 > maxY) maxY = y2;
-        }
-
-        const margins = {
-          left: minX,
-          top: minY,
-          right: rect.width - maxX,
-          bottom: rect.height - maxY,
-        };
-
-        const minPad = EXPORT_MIN_PADDING_PX;
-        const needPad =
-          margins.left < minPad - EXPORT_PADDING_EPS_PX ||
-          margins.top < minPad - EXPORT_PADDING_EPS_PX ||
-          margins.right < minPad - EXPORT_PADDING_EPS_PX ||
-          margins.bottom < minPad - EXPORT_PADDING_EPS_PX;
-
-        if (needPad) {
-          // 1) Erst versuchen: nur pan korrigieren (keine Scale-Änderung)
-          let dx = 0;
-          let dy = 0;
-
-          if (margins.left < minPad) dx += minPad - margins.left;
-          if (margins.right < minPad) dx -= minPad - margins.right;
-
-          if (margins.top < minPad) dy += minPad - margins.top;
-          if (margins.bottom < minPad) dy -= minPad - margins.bottom;
-
-          if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-            setPan({ x: pan.x + dx, y: pan.y + dy });
-            viewAdjusted = true;
-
-            // Bounds „mitziehen“ (pan shift verschiebt Screen-Bounds 1:1)
-            minX += dx;
-            maxX += dx;
-            minY += dy;
-            maxY += dy;
-
-            await wait2Frames();
-          }
-
-          const marginsAfterPan = {
-            left: minX,
-            top: minY,
-            right: rect.width - maxX,
-            bottom: rect.height - maxY,
-          };
-
-          const stillNeedPad =
-            marginsAfterPan.left < minPad - EXPORT_PADDING_EPS_PX ||
-            marginsAfterPan.top < minPad - EXPORT_PADDING_EPS_PX ||
-            marginsAfterPan.right < minPad - EXPORT_PADDING_EPS_PX ||
-            marginsAfterPan.bottom < minPad - EXPORT_PADDING_EPS_PX;
-
-          if (stillNeedPad) {
-            // 2) Wenn Pan nicht reicht: Scale runter, bis es mit minPad reinpasst
-            const worldMinX = (minX - (pan.x + dx)) / (scale || 1);
-            const worldMinY = (minY - (pan.y + dy)) / (scale || 1);
-            const worldMaxX = (maxX - (pan.x + dx)) / (scale || 1);
-            const worldMaxY = (maxY - (pan.y + dy)) / (scale || 1);
-
-            const worldW = Math.max(1, worldMaxX - worldMinX);
-            const worldH = Math.max(1, worldMaxY - worldMinY);
-
-            const availW = Math.max(1, rect.width - minPad * 2);
-            const availH = Math.max(1, rect.height - minPad * 2);
-
-            const fitScale = Math.min(availW / worldW, availH / worldH);
-            const desiredScale = clamp(fitScale, MIN_Z, MAX_Z);
-
-            // WICHTIG: niemals „reinzoomen“ beim Export – nur runter, wenn nötig
-            const nextScale = Math.min(scale, desiredScale);
-
-            const worldCx = (worldMinX + worldMaxX) / 2;
-            const worldCy = (worldMinY + worldMaxY) / 2;
-
-            const screenCx = rect.width / 2;
-            const screenCy = rect.height / 2;
-
-            const desiredPanX = screenCx - worldCx * nextScale;
-            const desiredPanY = screenCy - worldCy * nextScale;
-
-            setScale(nextScale);
-            setPan({ x: desiredPanX, y: desiredPanY });
-            viewAdjusted = true;
-
-            await wait2Frames();
-          }
-        }
-      }
-
-      // Schärfer: höheres pixelRatio
-      const pixelRatio = Math.max(
-        2,
-        Math.min(4, (window.devicePixelRatio || 1) * 2)
-      );
-
-      const backgroundColor = "#ffffff";
-
-      const dataUrl = await htmlToImage.toPng(target, {
-        backgroundColor,
-        pixelRatio,
-        cacheBust: true,
-        useCORS: true,
-      });
-
-      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-        throw new Error("Invalid PNG data generated");
-      }
-      return dataUrl;
-    } finally {
-      exportHudNodes.forEach((n, i) => (n.style.visibility = prevVisibility[i]));
-      if (viewAdjusted) {
-        setScale(originalScale);
-        setPan(originalPan);
-      }
-    }
-  };
-
-  const doDownloadPNG = async () => {
-    try {
-      const dataUrl = await captureMapAsPngDataUrl();
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = buildImageFileName(projectTitle, "png");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      window.alert(
-        "Export as PNG failed. Please try again and check the console for details."
-      );
-    }
-  };
-
-  const doDownloadPDF = async () => {
-    try {
-      const imgData = await captureMapAsPngDataUrl();
-
-      const img = new Image();
-      img.src = imgData;
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Image load failed"));
-      });
-
-      const width = img.naturalWidth || img.width;
-      const height = img.naturalHeight || img.height;
-
-      const pdf = new jsPDF({
-        orientation: width >= height ? "landscape" : "portrait",
-        unit: "px",
-        format: [width, height],
-        compress: true,
-      });
-
-      pdf.addImage(imgData, "PNG", 0, 0, width, height);
-      pdf.save(buildImageFileName(projectTitle, "pdf"));
-    } catch {
-      window.alert(
-        "Export as PDF failed. Please try again and check the console for details."
-      );
-    }
-  };
-
-  /* ---------- Ref-API ---------- */
-  const resetView = () => {
-    setScale(1);
-    setPan({ x: 0, y: 0 });
-  };
-
-  useImperativeHandle(ref, () => ({
-    exportPNG: doDownloadPNG,
-    exportJPG: doDownloadPNG, // Alias (Menu kann umgestellt werden, ohne dass Alt-Code bricht)
-    exportPDF: doDownloadPDF,
-    resetView,
-  }));
-
   /* ---------- Render-Helpers ---------- */
 
   function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
@@ -1226,6 +1044,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     ));
   }
 
+  // Eine Edge = sichtbare Linie + dicke unsichtbare Hit-Line
   function renderEdgeLine(
     keyBase: string,
     parentId: string,
@@ -1256,12 +1075,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               if (removeMode) return;
               e.stopPropagation();
               e.preventDefault();
-              startTouchLongPressForEdge(
-                parentId,
-                childId,
-                e.clientX,
-                e.clientY
-              );
+              startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
             }
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1326,15 +1140,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          edgeBaseColor,
-          px,
-          py
-        )
+        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
       );
     });
 
@@ -1373,8 +1179,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const task = getTask(kid.id);
       const explicitDone =
         typeof task?.done === "boolean" ? task.done : undefined;
-      const isDone =
-        explicitDone !== undefined ? explicitDone : inheritedDone;
+      const isDone = explicitDone !== undefined ? explicitDone : inheritedDone;
 
       const bubbleColor = (() => {
         const t = getTask(kid.id);
@@ -1451,33 +1256,400 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return nodes;
   }
 
+  /* ---------- Export: "echte Map" (ohne pan/scale Screenshot) ---------- */
+
+  const exportRootRef = useRef<HTMLDivElement | null>(null);
+  const [exportLayout, setExportLayout] = useState<ExportLayout | null>(null);
+  const exportBusy = useRef(false);
+
+  const wait2Frames = async () => {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    );
+  };
+
+  const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+
+  const computeExportLayout = (): ExportLayout => {
+    const nodes: ExportNode[] = [];
+    const edges: ExportEdge[] = [];
+
+    // Center node
+    nodes.push({
+      id: CENTER_ID,
+      kind: "center",
+      x: 0,
+      y: 0,
+      r: R_CENTER,
+      bubbleColor: centerColor,
+      title: projectTitle || "Project",
+      done: !!centerDone,
+      removeSelected: false,
+    });
+
+    const totalRoots = Math.max(roots.length, 1);
+
+    const addChildRec = (
+      parentId: string,
+      px: number,
+      py: number,
+      pr: number,
+      gpx: number,
+      gpy: number,
+      rootBubbleColor: string,
+      edgeBaseColor: string,
+      inheritedDone: boolean
+    ) => {
+      const kids = childrenOf(parentId);
+      if (kids.length === 0) return;
+
+      const base = Math.atan2(py - gpy, px - gpx);
+      const SPREAD = Math.min(
+        Math.PI,
+        Math.max(Math.PI * 0.6, (kids.length - 1) * (Math.PI / 6))
+      );
+      const step = kids.length === 1 ? 0 : SPREAD / (kids.length - 1);
+      const start = base - SPREAD / 2;
+
+      kids.forEach((kid, idx) => {
+        const ang = start + idx * step;
+
+        const cxBase = px + Math.cos(ang) * RING;
+        const cyBase = py + Math.sin(ang) * RING;
+
+        const ko = getOffset(kid.id);
+        const cx = cxBase + ko.x;
+        const cy = cyBase + ko.y;
+
+        const t = getTask(kid.id);
+        const explicitDone = typeof t?.done === "boolean" ? t.done : undefined;
+        const isDone = explicitDone !== undefined ? explicitDone : inheritedDone;
+
+        const bubbleColor = t?.color ?? rootBubbleColor;
+        const isSelectedForRemove = removeMode && removeSelection.has(kid.id);
+
+        nodes.push({
+          id: kid.id,
+          kind: "child",
+          x: cx,
+          y: cy,
+          r: R_CHILD,
+          bubbleColor,
+          title: kid.title,
+          done: isDone,
+          removeSelected: isSelectedForRemove,
+        });
+
+        const seg = segmentBetweenCircles(px, py, pr, cx, cy, R_CHILD);
+        const key = edgeKey(parentId, kid.id);
+        const lineColor = edgeColorOverride[key] ?? edgeBaseColor;
+
+        edges.push({
+          parentId,
+          childId: kid.id,
+          x1: seg.x1,
+          y1: seg.y1,
+          x2: seg.x2,
+          y2: seg.y2,
+          color: lineColor,
+        });
+
+        addChildRec(kid.id, cx, cy, R_CHILD, px, py, rootBubbleColor, edgeBaseColor, isDone);
+      });
+    };
+
+    // Roots + their subtrees
+    roots.forEach((root, i) => {
+      const ang = (i / totalRoots) * Math.PI * 2;
+      const rxBase = Math.cos(ang) * ROOT_RADIUS;
+      const ryBase = Math.sin(ang) * ROOT_RADIUS;
+      const ro = getOffset(root.id);
+      const rx = rxBase + ro.x;
+      const ry = ryBase + ro.y;
+
+      const baseBubbleColor =
+        branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
+      const baseEdgeColor = branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+
+      const rootTask = getTask(root.id);
+      const explicitRootDone =
+        typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
+      const rootDone = explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
+
+      const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
+
+      nodes.push({
+        id: root.id,
+        kind: "root",
+        x: rx,
+        y: ry,
+        r: R_ROOT,
+        bubbleColor: baseBubbleColor,
+        title: root.title,
+        done: rootDone,
+        removeSelected: isRootSelectedForRemove,
+      });
+
+      // Center -> Root edge
+      const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
+      edges.push({
+        parentId: CENTER_ID,
+        childId: root.id,
+        x1: seg.x1,
+        y1: seg.y1,
+        x2: seg.x2,
+        y2: seg.y2,
+        color: baseEdgeColor,
+      });
+
+      // Children edges + nodes
+      addChildRec(root.id, rx, ry, R_ROOT, 0, 0, baseBubbleColor, baseEdgeColor, rootDone);
+    });
+
+    // Bounds (nur Nodes reichen – Edges liegen innerhalb)
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x - n.r);
+      maxX = Math.max(maxX, n.x + n.r);
+      minY = Math.min(minY, n.y - n.r);
+      maxY = Math.max(maxY, n.y + n.r);
+    }
+
+    // Shadow + Weißrand
+    minX -= EXPORT_SHADOW_PAD_X + EXPORT_MIN_PADDING_PX;
+    maxX += EXPORT_SHADOW_PAD_X + EXPORT_MIN_PADDING_PX;
+    minY -= EXPORT_SHADOW_PAD_TOP + EXPORT_MIN_PADDING_PX;
+    maxY += EXPORT_SHADOW_PAD_BOTTOM + EXPORT_MIN_PADDING_PX;
+
+    const width = Math.max(1, Math.ceil(maxX - minX));
+    const height = Math.max(1, Math.ceil(maxY - minY));
+
+    const originX = -minX;
+    const originY = -minY;
+
+    return { width, height, originX, originY, nodes, edges };
+  };
+
+  const pickPixelRatio = (w: number, h: number) => {
+    const dpr = window.devicePixelRatio || 1;
+    const base = clamp(dpr * 2, 2, 4);
+    const longSide = Math.max(w, h);
+    const maxRatioBySize = EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
+    return clamp(Math.min(base, maxRatioBySize), 1, 4);
+  };
+
+  const captureExportAsPngDataUrl = async (): Promise<string> => {
+    if (exportBusy.current) throw new Error("Export already in progress");
+    exportBusy.current = true;
+
+    try {
+      const layout = computeExportLayout();
+      setExportLayout(layout);
+      await wait2Frames();
+
+      const el = exportRootRef.current;
+      if (!el) throw new Error("Export root not mounted");
+
+      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+
+      const dataUrl = await htmlToImage.toPng(el, {
+        backgroundColor: "#ffffff",
+        pixelRatio,
+        cacheBust: true,
+        useCORS: true,
+      });
+
+      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+        throw new Error("Invalid PNG data generated");
+      }
+
+      return dataUrl;
+    } finally {
+      setExportLayout(null);
+      exportBusy.current = false;
+    }
+  };
+
+  const doDownloadPNG = async () => {
+    try {
+      const dataUrl = await captureExportAsPngDataUrl();
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = buildImageFileName(projectTitle, "png");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      window.alert(
+        "Export as PNG failed. Please try again and check the console for details."
+      );
+    }
+  };
+
+  const doDownloadPDF = async () => {
+    try {
+      const imgData = await captureExportAsPngDataUrl();
+
+      const img = new Image();
+      img.src = imgData;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Image load failed"));
+      });
+
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+
+      const pdf = new jsPDF({
+        orientation: width >= height ? "landscape" : "portrait",
+        unit: "px",
+        format: [width, height],
+        compress: true,
+      });
+
+      pdf.addImage(imgData, "PNG", 0, 0, width, height);
+      pdf.save(buildImageFileName(projectTitle, "pdf"));
+    } catch {
+      window.alert(
+        "Export as PDF failed. Please try again and check the console for details."
+      );
+    }
+  };
+
+  /* ---------- Ref-API ---------- */
+  const resetView = () => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  useImperativeHandle(ref, () => ({
+    exportPNG: doDownloadPNG,
+    exportJPG: doDownloadPNG, // Alias
+    exportPDF: doDownloadPDF,
+    resetView,
+  }));
+
   /* ---------- JSX ---------- */
   return (
-    <div
-      className={
-        "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
-      }
-      ref={wrapperRef}
-      style={{
-        touchAction: "none",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-      }}
-      onPointerDown={onPointerDownMap}
-      onPointerMove={onPointerMoveMap}
-      onPointerUp={onPointerUpMap}
-      onPointerCancel={onPointerUpMap}
-      onWheel={onWheel}
-    >
+    <>
       <div
-        className="map-pan"
+        className={
+          "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
+        }
+        ref={wrapperRef}
         style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-          transformOrigin: "0 0",
+          touchAction: "none",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
+        onPointerDown={onPointerDownMap}
+        onPointerMove={onPointerMoveMap}
+        onPointerUp={onPointerUpMap}
+        onPointerCancel={onPointerUpMap}
+        onWheel={onWheel}
       >
-        <div className="map-origin">
-          <svg className="map-svg" viewBox="-2000 -2000 4000 4000">
+        <div
+          className="map-pan"
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+            transformOrigin: "0 0",
+          }}
+        >
+          <div className="map-origin">
+            <svg className="map-svg" viewBox="-2000 -2000 4000 4000">
+              {/* Center -> Root Edges */}
+              {roots.map((root, i) => {
+                const total = Math.max(roots.length, 1);
+                const ang = (i / total) * Math.PI * 2;
+                const rxBase = Math.cos(ang) * ROOT_RADIUS;
+                const ryBase = Math.sin(ang) * ROOT_RADIUS;
+                const ro = getOffset(root.id);
+                const rx = rxBase + ro.x;
+                const ry = ryBase + ro.y;
+                const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
+
+                const baseBubbleColor =
+                  branchColorOverride[root.id] ??
+                  BRANCH_COLORS[i % BRANCH_COLORS.length];
+                const baseEdgeColor =
+                  branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+
+                return renderEdgeLine(
+                  `root-line-${root.id}`,
+                  CENTER_ID,
+                  root.id,
+                  seg.x1,
+                  seg.y1,
+                  seg.x2,
+                  seg.y2,
+                  baseEdgeColor
+                );
+              })}
+
+              {/* Child-Edges */}
+              {roots.flatMap((root, i) => {
+                const total = Math.max(roots.length, 1);
+                const ang = (i / total) * Math.PI * 2;
+                const rxBase = Math.cos(ang) * ROOT_RADIUS;
+                const ryBase = Math.sin(ang) * ROOT_RADIUS;
+                const ro = getOffset(root.id);
+                const rx = rxBase + ro.x;
+                const ry = ryBase + ro.y;
+
+                const baseBubbleColor =
+                  branchColorOverride[root.id] ??
+                  BRANCH_COLORS[i % BRANCH_COLORS.length];
+                const baseEdgeColor =
+                  branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+
+                return renderChildLinesWithOffsets(
+                  root.id,
+                  rx,
+                  ry,
+                  R_ROOT,
+                  baseEdgeColor,
+                  0,
+                  0
+                );
+              })}
+            </svg>
+
+            {/* Center Node */}
+            <div
+              className="skill-node center-node"
+              style={{ background: centerColor }}
+              data-done={centerDone ? "true" : "false"}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (removeMode) return;
+                openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
+              }}
+              onPointerDown={(e) => {
+                if (removeMode) return;
+                if (e.pointerType === "touch") {
+                  e.preventDefault();
+                  skipClearLongPressOnNextPointerDown.current = true;
+                  startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
+                }
+              }}
+              onPointerUp={() => clearTouchLongPress()}
+              onPointerCancel={() => clearTouchLongPress()}
+              lang={document.documentElement.lang || navigator.language || "en"}
+            >
+              {centerDone && (
+                <div className="done-badge" aria-hidden="true">
+                  <span className="done-badge-check">✓</span>
+                </div>
+              )}
+              {renderTitleAsSpans(projectTitle || "Project", MAXLEN_CENTER)}
+            </div>
+
+            {/* Roots + Children */}
             {roots.map((root, i) => {
               const total = Math.max(roots.length, 1);
               const ang = (i / total) * Math.PI * 2;
@@ -1486,413 +1658,370 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               const ro = getOffset(root.id);
               const rx = rxBase + ro.x;
               const ry = ryBase + ro.y;
-              const seg = segmentBetweenCircles(
-                0,
-                0,
-                R_CENTER,
-                rx,
-                ry,
-                R_ROOT
-              );
 
-              const baseBubbleColor =
+              const rootBubbleColor =
                 branchColorOverride[root.id] ??
                 BRANCH_COLORS[i % BRANCH_COLORS.length];
-              const baseEdgeColor =
-                branchEdgeColorOverride[root.id] ?? baseBubbleColor;
 
-              return renderEdgeLine(
-                `root-line-${root.id}`,
-                CENTER_ID,
-                root.id,
-                seg.x1,
-                seg.y1,
-                seg.x2,
-                seg.y2,
-                baseEdgeColor
+              const rootTask = getTask(root.id);
+              const explicitRootDone =
+                typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
+              const rootDone =
+                explicitRootDone !== undefined ? explicitRootDone : centerDone;
+
+              const isRootSelectedForRemove =
+                removeMode && removeSelection.has(root.id);
+
+              return (
+                <React.Fragment key={`root-node-${root.id}`}>
+                  <div
+                    className={
+                      "skill-node root-node" +
+                      (removeMode ? " node-remove-mode" : "") +
+                      (isRootSelectedForRemove ? " node-remove-selected" : "")
+                    }
+                    style={{
+                      transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`,
+                      background: rootBubbleColor,
+                    }}
+                    data-done={rootDone ? "true" : "false"}
+                    data-remove-mode={removeMode ? "true" : "false"}
+                    data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
+                    onPointerDown={(e) => {
+                      if (removeMode) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onToggleRemoveTarget(root.id);
+                        return;
+                      }
+                      if (e.pointerType === "touch") {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        startNodeDrag(root.id, e);
+                        startTouchLongPressForNode(root.id, e.clientX, e.clientY);
+                        return;
+                      }
+                      startNodeDrag(root.id, e);
+                    }}
+                    onPointerUp={() => clearTouchLongPress()}
+                    onPointerCancel={() => clearTouchLongPress()}
+                    onContextMenu={(e) => onNodeContextMenu(e, root.id)}
+                    lang={document.documentElement.lang || navigator.language || "en"}
+                  >
+                    {removeMode && (
+                      <div className="remove-checkbox" aria-hidden="true">
+                        {isRootSelectedForRemove && (
+                          <div className="remove-checkbox-mark">✕</div>
+                        )}
+                      </div>
+                    )}
+                    {rootDone && (
+                      <div className="done-badge" aria-hidden="true">
+                        <span className="done-badge-check">✓</span>
+                      </div>
+                    )}
+                    {renderTitleAsSpans(root.title, MAXLEN_ROOT_AND_CHILD)}
+                  </div>
+
+                  {renderChildNodesWithOffsets(
+                    root.id,
+                    rx,
+                    ry,
+                    rootBubbleColor,
+                    0,
+                    0,
+                    rootDone
+                  )}
+                </React.Fragment>
               );
             })}
+          </div>
+        </div>
 
-            {roots.flatMap((root, i) => {
-              const total = Math.max(roots.length, 1);
-              const ang = (i / total) * Math.PI * 2;
-              const rxBase = Math.cos(ang) * ROOT_RADIUS;
-              const ryBase = Math.sin(ang) * ROOT_RADIUS;
-              const ro = getOffset(root.id);
-              const rx = rxBase + ro.x;
-              const ry = ryBase + ro.y;
+        {/* Progress-HUD: nur wenn Map sichtbar (sonst fixed overlay im Edit) */}
+        {active && totalTasks > 0 && (
+          <div className="map-progress map-export-hide">
+            <div className="map-progress-label">Progress</div>
+            <div className="map-progress-row">
+              <div className="map-progress-bar" aria-hidden="true">
+                <div
+                  className="map-progress-bar-fill"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <div className="map-progress-value">{progressPercent}%</div>
+            </div>
+          </div>
+        )}
 
-              const baseBubbleColor =
-                branchColorOverride[root.id] ??
-                BRANCH_COLORS[i % BRANCH_COLORS.length];
-              const baseEdgeColor =
-                branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+        {/* Kontextmenü (Color / Files) */}
+        {active && ctxMenu.open && !removeMode && (
+          <div
+            className="ctxmenu"
+            style={{
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              minWidth: 260,
+              minHeight: 190,
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="ctxmenu-header">
+              {ctxMenu.kind === "node" ? (
+                <div className="ctxmenu-tabRow" style={{ display: "flex", gap: 10 }}>
+                  <button
+                    className={
+                      "ctxmenu-doneBtn ctxmenu-tabBtn" +
+                      (ctxMenu.tab === "color" ? " ctxmenu-tabBtn-active" : "")
+                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "color" }))}
+                  >
+                    Color
+                  </button>
+                  <button
+                    className={
+                      "ctxmenu-doneBtn ctxmenu-tabBtn" +
+                      (ctxMenu.tab === "files" ? " ctxmenu-tabBtn-active" : "")
+                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "files" }))}
+                  >
+                    Files
+                  </button>
+                </div>
+              ) : (
+                <div className="ctxmenu-title">Color</div>
+              )}
 
-              return renderChildLinesWithOffsets(
-                root.id,
-                rx,
-                ry,
-                R_ROOT,
-                baseEdgeColor,
-                0,
-                0
-              );
-            })}
+              {ctxMenu.kind === "node" && ctxMenu.nodeId && (
+                <button
+                  className={
+                    "ctxmenu-doneBtn" +
+                    ((ctxMenu.nodeId === CENTER_ID
+                      ? centerDone
+                      : computeEffectiveDoneForTaskId(ctxMenu.nodeId))
+                      ? " ctxmenu-doneBtn-active"
+                      : "")
+                  }
+                  onClick={toggleDone}
+                >
+                  Done
+                </button>
+              )}
+            </div>
+
+            <div className="ctxmenu-body">
+              {ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
+                <div className="ctxmenu-filesView">
+                  <button
+                    className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
+                    onClick={() => handleAddPdfClick(ctxMenu.nodeId!)}
+                  >
+                    + Add PDF
+                  </button>
+                  {getAttachmentsForNode(ctxMenu.nodeId).length === 0 ? (
+                    <div className="ctxmenu-filesEmpty">No PDFs attached yet.</div>
+                  ) : (
+                    <ul
+                      className="ctxmenu-fileList"
+                      style={{ listStyle: "none", padding: 0, margin: "10px 0 0 0" }}
+                    >
+                      {getAttachmentsForNode(ctxMenu.nodeId).map((att) => (
+                        <li key={att.id} className="ctxmenu-fileItem">
+                          <button
+                            className="ctxmenu-fileButton"
+                            style={{ background: "transparent", border: "none" }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
+                            }}
+                          >
+                            <span className="ctxmenu-fileBullet">•</span>
+                            <span className="ctxmenu-fileIcon" aria-hidden="true">
+                              📄
+                            </span>
+                            <span className="ctxmenu-fileName" style={{ color: "#e5e7eb" }}>
+                              {att.name}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : (
+                <div className="ctxmenu-swatches">
+                  {COLOR_SWATCHES.map((hex) => (
+                    <button
+                      key={hex}
+                      className="ctxmenu-swatch"
+                      style={{ background: hex }}
+                      onClick={() => applyColor(hex)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        applyColor(hex);
+                      }}
+                      aria-label={`Color ${hex}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Kontextmenü für einzelne Attachments (Download / Delete) */}
+        {active && fileMenu.open && (
+          <div
+            className="ctxmenu filemenu"
+            style={{
+              left: fileMenu.x,
+              top: fileMenu.y,
+              padding: "4px 0",
+              minWidth: 140,
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <button
+              className="filemenu-item-plain"
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "6px 14px",
+                background: "transparent",
+                border: "none",
+                textAlign: "left",
+                color: "#e5e7eb",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+              onClick={handleDownloadAttachment}
+            >
+              Download
+            </button>
+            <button
+              className="filemenu-item-plain"
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "6px 14px",
+                background: "transparent",
+                border: "none",
+                textAlign: "left",
+                color: "#fecaca",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+              onClick={handleDeleteAttachment}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+
+        {/* Hidden File Input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf"
+          style={{ display: "none" }}
+          onChange={onFileInputChange}
+        />
+      </div>
+
+      {/* Export-only DOM (unsichtbar, keine pan/scale transforms, gleiche CSS) */}
+      {exportLayout && (
+        <div
+          ref={exportRootRef}
+          style={{
+            position: "fixed",
+            left: "-100000px",
+            top: 0,
+            width: exportLayout.width,
+            height: exportLayout.height,
+            background: "#ffffff",
+            overflow: "hidden",
+          }}
+          aria-hidden="true"
+        >
+          {/* Edges */}
+          <svg
+            width={exportLayout.width}
+            height={exportLayout.height}
+            style={{ position: "absolute", inset: 0, overflow: "visible" }}
+          >
+            {exportLayout.edges.map((e, idx) => (
+              <line
+                key={`${e.parentId}-${e.childId}-${idx}`}
+                x1={exportLayout.originX + e.x1}
+                y1={exportLayout.originY + e.y1}
+                x2={exportLayout.originX + e.x2}
+                y2={exportLayout.originY + e.y2}
+                stroke={e.color}
+                strokeWidth={3}
+                strokeLinecap="round"
+              />
+            ))}
           </svg>
 
-          <div
-            className="skill-node center-node"
-            style={{ background: centerColor }}
-            data-done={centerDone ? "true" : "false"}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (removeMode) return;
-              openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
-            }}
-            onPointerDown={(e) => {
-              if (removeMode) return;
-              if (e.pointerType === "touch") {
-                e.preventDefault();
-                skipClearLongPressOnNextPointerDown.current = true;
-                startTouchLongPressForNode(
-                  CENTER_ID,
-                  e.clientX,
-                  e.clientY
-                );
-              }
-            }}
-            onPointerUp={() => clearTouchLongPress()}
-            onPointerCancel={() => clearTouchLongPress()}
-            lang={document.documentElement.lang || navigator.language || "en"}
-          >
-            {centerDone && (
-              <div className="done-badge" aria-hidden="true">
-                <span className="done-badge-check">✓</span>
-              </div>
-            )}
-            {renderTitleAsSpans(projectTitle || "Project", MAXLEN_CENTER)}
-          </div>
+          {/* Nodes */}
+          <div style={{ position: "absolute", inset: 0 }}>
+            {exportLayout.nodes.map((n) => {
+              const isCenter = n.kind === "center";
+              const isRoot = n.kind === "root";
+              const isChild = n.kind === "child";
 
-          {roots.map((root, i) => {
-            const total = Math.max(roots.length, 1);
-            const ang = (i / total) * Math.PI * 2;
-            const rxBase = Math.cos(ang) * ROOT_RADIUS;
-            const ryBase = Math.sin(ang) * ROOT_RADIUS;
-            const ro = getOffset(root.id);
-            const rx = rxBase + ro.x;
-            const ry = ryBase + ro.y;
+              const cls =
+                "skill-node " +
+                (isCenter ? "center-node" : isChild ? "child-node" : "root-node") +
+                (removeMode ? " node-remove-mode" : "") +
+                (n.removeSelected ? " node-remove-selected" : "");
 
-            const rootBubbleColor =
-              branchColorOverride[root.id] ??
-              BRANCH_COLORS[i % BRANCH_COLORS.length];
-
-            const rootTask = getTask(root.id);
-            const explicitRootDone =
-              typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-            const rootDone =
-              explicitRootDone !== undefined ? explicitRootDone : centerDone;
-
-            const isRootSelectedForRemove =
-              removeMode && removeSelection.has(root.id);
-
-            return (
-              <React.Fragment key={`root-node-${root.id}`}>
+              return (
                 <div
-                  className={
-                    "skill-node root-node" +
-                    (removeMode ? " node-remove-mode" : "") +
-                    (isRootSelectedForRemove ? " node-remove-selected" : "")
-                  }
+                  key={n.id}
+                  className={cls}
                   style={{
-                    transform: `translate(${rx}px, ${ry}px) translate(-50%, -50%)`,
-                    background: rootBubbleColor,
+                    left: exportLayout.originX + n.x,
+                    top: exportLayout.originY + n.y,
+                    transform: "translate(-50%, -50%)",
+                    background: n.bubbleColor,
+                    position: "absolute",
                   }}
-                  data-done={rootDone ? "true" : "false"}
+                  data-done={n.done ? "true" : "false"}
                   data-remove-mode={removeMode ? "true" : "false"}
-                  data-remove-selected={
-                    isRootSelectedForRemove ? "true" : "false"
-                  }
-                  onPointerDown={(e) => {
-                    if (removeMode) {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onToggleRemoveTarget(root.id);
-                      return;
-                    }
-                    if (e.pointerType === "touch") {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      startNodeDrag(root.id, e);
-                      startTouchLongPressForNode(
-                        root.id,
-                        e.clientX,
-                        e.clientY
-                      );
-                      return;
-                    }
-                    startNodeDrag(root.id, e);
-                  }}
-                  onPointerUp={() => clearTouchLongPress()}
-                  onPointerCancel={() => clearTouchLongPress()}
-                  onContextMenu={(e) => onNodeContextMenu(e, root.id)}
-                  lang={document.documentElement.lang || navigator.language || "en"}
+                  data-remove-selected={n.removeSelected ? "true" : "false"}
                 >
                   {removeMode && (
                     <div className="remove-checkbox" aria-hidden="true">
-                      {isRootSelectedForRemove && (
+                      {n.removeSelected && (
                         <div className="remove-checkbox-mark">✕</div>
                       )}
                     </div>
                   )}
-                  {rootDone && (
+                  {n.done && (
                     <div className="done-badge" aria-hidden="true">
                       <span className="done-badge-check">✓</span>
                     </div>
                   )}
-                  {renderTitleAsSpans(root.title, MAXLEN_ROOT_AND_CHILD)}
+                  {renderTitleAsSpans(
+                    n.title,
+                    isCenter ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD
+                  )}
                 </div>
-
-                {renderChildNodesWithOffsets(
-                  root.id,
-                  rx,
-                  ry,
-                  rootBubbleColor,
-                  0,
-                  0,
-                  rootDone
-                )}
-              </React.Fragment>
-            );
-          })}
-        </div>
-      </div>
-
-      {totalTasks > 0 && (
-        <div className="map-progress map-export-hide">
-          <div className="map-progress-label">Progress</div>
-          <div className="map-progress-row">
-            <div className="map-progress-bar" aria-hidden="true">
-              <div
-                className="map-progress-bar-fill"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <div className="map-progress-value">{progressPercent}%</div>
+              );
+            })}
           </div>
         </div>
       )}
-
-      {ctxMenu.open && !removeMode && (
-        <div
-          className="ctxmenu"
-          style={{
-            left: ctxMenu.x,
-            top: ctxMenu.y,
-            minWidth: 260,
-            minHeight: 190,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div className="ctxmenu-header">
-            {ctxMenu.kind === "node" ? (
-              <div
-                className="ctxmenu-tabRow"
-                style={{ display: "flex", gap: 10 }}
-              >
-                <button
-                  className={
-                    "ctxmenu-doneBtn ctxmenu-tabBtn" +
-                    (ctxMenu.tab === "color"
-                      ? " ctxmenu-tabBtn-active"
-                      : "")
-                  }
-                  onClick={() =>
-                    setCtxMenu((prev) => ({ ...prev, tab: "color" }))
-                  }
-                >
-                  Color
-                </button>
-                <button
-                  className={
-                    "ctxmenu-doneBtn ctxmenu-tabBtn" +
-                    (ctxMenu.tab === "files"
-                      ? " ctxmenu-tabBtn-active"
-                      : "")
-                  }
-                  onClick={() =>
-                    setCtxMenu((prev) => ({ ...prev, tab: "files" }))
-                  }
-                >
-                  Files
-                </button>
-              </div>
-            ) : (
-              <div className="ctxmenu-title">Color</div>
-            )}
-
-            {ctxMenu.kind === "node" && ctxMenu.nodeId && (
-              <button
-                className={
-                  "ctxmenu-doneBtn" +
-                  ((ctxMenu.nodeId === CENTER_ID
-                    ? centerDone
-                    : computeEffectiveDoneForTaskId(ctxMenu.nodeId))
-                    ? " ctxmenu-doneBtn-active"
-                    : "")
-                }
-                onClick={toggleDone}
-              >
-                Done
-              </button>
-            )}
-          </div>
-
-          <div className="ctxmenu-body">
-            {ctxMenu.kind === "node" &&
-            ctxMenu.tab === "files" &&
-            ctxMenu.nodeId ? (
-              <div className="ctxmenu-filesView">
-                <button
-                  className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
-                  onClick={() => handleAddPdfClick(ctxMenu.nodeId!)}
-                >
-                  + Add PDF
-                </button>
-                {getAttachmentsForNode(ctxMenu.nodeId).length === 0 ? (
-                  <div className="ctxmenu-filesEmpty">
-                    No PDFs attached yet.
-                  </div>
-                ) : (
-                  <ul
-                    className="ctxmenu-fileList"
-                    style={{
-                      listStyle: "none",
-                      padding: 0,
-                      margin: "10px 0 0 0",
-                    }}
-                  >
-                    {getAttachmentsForNode(ctxMenu.nodeId).map((att) => (
-                      <li key={att.id} className="ctxmenu-fileItem">
-                        <button
-                          className="ctxmenu-fileButton"
-                          style={{ background: "transparent", border: "none" }}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openFileContextMenu(
-                              e.clientX,
-                              e.clientY,
-                              ctxMenu.nodeId!,
-                              att.id
-                            );
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openFileContextMenu(
-                              e.clientX,
-                              e.clientY,
-                              ctxMenu.nodeId!,
-                              att.id
-                            );
-                          }}
-                        >
-                          <span className="ctxmenu-fileBullet">•</span>
-                          <span className="ctxmenu-fileIcon" aria-hidden="true">
-                            📄
-                          </span>
-                          <span
-                            className="ctxmenu-fileName"
-                            style={{ color: "#e5e7eb" }}
-                          >
-                            {att.name}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : (
-              <div className="ctxmenu-swatches">
-                {COLOR_SWATCHES.map((hex) => (
-                  <button
-                    key={hex}
-                    className="ctxmenu-swatch"
-                    style={{ background: hex }}
-                    onClick={() => applyColor(hex)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      applyColor(hex);
-                    }}
-                    aria-label={`Color ${hex}`}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {fileMenu.open && (
-        <div
-          className="ctxmenu filemenu"
-          style={{
-            left: fileMenu.x,
-            top: fileMenu.y,
-            padding: "4px 0",
-            minWidth: 140,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <button
-            className="filemenu-item-plain"
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "6px 14px",
-              background: "transparent",
-              border: "none",
-              textAlign: "left",
-              color: "#e5e7eb",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-            onClick={handleDownloadAttachment}
-          >
-            Download
-          </button>
-          <button
-            className="filemenu-item-plain"
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "6px 14px",
-              background: "transparent",
-              border: "none",
-              textAlign: "left",
-              color: "#fecaca",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-            onClick={handleDeleteAttachment}
-          >
-            Delete
-          </button>
-        </div>
-      )}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/pdf"
-        style={{ display: "none" }}
-        onChange={onFileInputChange}
-      />
-    </div>
+    </>
   );
 });
 

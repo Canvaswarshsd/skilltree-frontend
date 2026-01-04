@@ -232,9 +232,7 @@ export default function App() {
     setTasks((prev) =>
       isDescendant(prev, targetId, src)
         ? prev
-        : prev.map((t) =>
-            t.id === src ? { ...t, parentId: targetId } : t
-          )
+        : prev.map((t) => (t.id === src ? { ...t, parentId: targetId } : t))
     );
     finishDrag();
   }
@@ -259,10 +257,7 @@ export default function App() {
       hoverId ? dropOn(hoverId) : dropToRoot();
     };
     const onPointerCancel = (e: PointerEvent) => {
-      if (
-        editGesture.current &&
-        e.pointerId === editGesture.current.pointerId
-      )
+      if (editGesture.current && e.pointerId === editGesture.current.pointerId)
         editGesture.current = null;
       if (draggingRef.current) finishDrag();
     };
@@ -498,8 +493,7 @@ export default function App() {
           </button>
           <button
             className={
-              "btn btn-remove" +
-              (isRemoveModeActive ? " btn-remove-active" : "")
+              "btn btn-remove" + (isRemoveModeActive ? " btn-remove-active" : "")
             }
             onClick={handleRemoveClick}
             title={
@@ -606,7 +600,8 @@ export default function App() {
       )}
 
       <div className="body">
-        {view === "edit" ? (
+        {/* Edit view */}
+        {view === "edit" && (
           <div className="task-list">
             <h2 className="section-title" />
             {roots.map((r) => (
@@ -628,7 +623,10 @@ export default function App() {
               />
             ))}
           </div>
-        ) : (
+        )}
+
+        {/* MapView is ALWAYS mounted (for real export), but moved offscreen while in Edit */}
+        <div className={view === "map" ? "map-host" : "map-host map-host-hidden"}>
           <MapView
             ref={mapRef}
             active={view === "map"}
@@ -650,10 +648,10 @@ export default function App() {
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
           />
-        )}
+        </div>
       </div>
-	        <Analytics />
 
+      <Analytics />
     </div>
   );
 }

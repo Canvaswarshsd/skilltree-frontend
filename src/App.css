@@ -561,3 +561,22 @@ html, body { overflow: hidden; }
 .map-export-hide {
   /* leer – nur Marker-Klasse, das Hiding passiert in MapView.tsx */
 }
+
+
+/* ===== TaskMap: MapView offscreen mount (Export auch im Edit) ===== */
+.map-host {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.map-host-hidden {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  width: 1400px;
+  height: 900px;
+  opacity: 0;
+  pointer-events: none;
+}
