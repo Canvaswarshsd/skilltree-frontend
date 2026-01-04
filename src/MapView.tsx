@@ -6,7 +6,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 
@@ -147,11 +146,6 @@ const MAXLEN_ROOT_AND_CHILD = 12;
 const TOUCH_LONGPRESS_DELAY_MS = 450;
 const TOUCH_LONGPRESS_MOVE_CANCEL_PX = 12;
 
-/* Right-Click / Safari Fix: Drag vs. Context-Menu Threshold */
-const CONTEXT_CLICK_DRAG_THRESHOLD_PX = 8;
-/* Nach manuellem Öffnen: native contextmenu Events kurz suppressen */
-const SUPPRESS_NATIVE_CONTEXTMENU_MS = 350;
-
 /* Export: Minimaler Weißrand + Shadow-Sicherheitsrand */
 const EXPORT_MIN_PADDING_PX = 18;
 
@@ -246,11 +240,6 @@ function makeId() {
     .slice(2, 8)}`;
 }
 
-/* Safari/Mac: Right-Click kann auch Ctrl+Click sein */
-function isRightClickLike(e: { button: number; ctrlKey?: boolean }) {
-  return e.button === 2 || (e.button === 0 && !!e.ctrlKey);
-}
-
 /* ---------- Export Layout Types ---------- */
 type ExportNode = {
   id: string;
@@ -282,29 +271,6 @@ type ExportLayout = {
   nodes: ExportNode[];
   edges: ExportEdge[];
 };
-
-/* Pending context click (Safari/Mac Right-Click Fix) */
-type PendingContextClick =
-  | {
-      kind: "node";
-      nodeId: string;
-      pointerId: number;
-      startClient: { x: number; y: number };
-      lastClient: { x: number; y: number };
-      startOffset: { x: number; y: number };
-      targetEl: HTMLElement;
-      startedDrag: boolean;
-      allowDrag: boolean; // center node: false
-    }
-  | {
-      kind: "edge";
-      parentId: string;
-      childId: string;
-      pointerId: number;
-      startClient: { x: number; y: number };
-      lastClient: { x: number; y: number };
-      targetEl: SVGLineElement;
-    };
 
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
@@ -356,17 +322,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
   const setOffset = (id: string, x: number, y: number) =>
     setNodeOffset((prev) => ({ ...prev, [id]: { x, y } }));
-
-  // refs für "frische" Werte in window listeners
-  const removeModeRef = useRef(removeMode);
-  useEffect(() => {
-    removeModeRef.current = removeMode;
-  }, [removeMode]);
-
-  const activeRef = useRef(active);
-  useEffect(() => {
-    activeRef.current = active;
-  }, [active]);
 
   function computeEffectiveDoneForTaskId(taskId: string): boolean {
     const chain: Task[] = [];
@@ -487,78 +442,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }, TOUCH_LONGPRESS_DELAY_MS);
   };
 
-  /* ---------- Safari/Mac: Right-Click Fix State ---------- */
-  const pendingCtxClick = useRef<PendingContextClick | null>(null);
-  const suppressNextContextMenu = useRef(false);
-
-  const clearPendingCtx = () => {
-    pendingCtxClick.current = null;
-  };
-
-  const markSuppressNativeContextMenu = () => {
-    suppressNextContextMenu.current = true;
-    window.setTimeout(() => {
-      suppressNextContextMenu.current = false;
-    }, SUPPRESS_NATIVE_CONTEXTMENU_MS);
-  };
-
-  const startPendingContextForNode = (
-    nodeId: string,
-    e: React.PointerEvent,
-    allowDrag: boolean
-  ) => {
-    if (!activeRef.current) return;
-    if (removeModeRef.current) return;
-
-    e.stopPropagation();
-    e.preventDefault();
-
-    const el = e.currentTarget as HTMLElement;
-
-    pendingCtxClick.current = {
-      kind: "node",
-      nodeId,
-      pointerId: e.pointerId,
-      startClient: { x: e.clientX, y: e.clientY },
-      lastClient: { x: e.clientX, y: e.clientY },
-      startOffset: getOffset(nodeId),
-      targetEl: el,
-      startedDrag: false,
-      allowDrag,
-    };
-
-    // pointer capture stabilisiert Safari/Trackpad
-    el.setPointerCapture?.(e.pointerId);
-    markSuppressNativeContextMenu();
-  };
-
-  const startPendingContextForEdge = (
-    parentId: string,
-    childId: string,
-    e: React.PointerEvent<SVGLineElement>
-  ) => {
-    if (!activeRef.current) return;
-    if (removeModeRef.current) return;
-
-    e.stopPropagation();
-    e.preventDefault();
-
-    const el = e.currentTarget as unknown as SVGLineElement;
-
-    pendingCtxClick.current = {
-      kind: "edge",
-      parentId,
-      childId,
-      pointerId: e.pointerId,
-      startClient: { x: e.clientX, y: e.clientY },
-      lastClient: { x: e.clientX, y: e.clientY },
-      targetEl: el,
-    };
-
-    (el as any).setPointerCapture?.(e.pointerId);
-    markSuppressNativeContextMenu();
-  };
-
   /* ---------- Node-Drag (Desktop / Maus + Touch) ---------- */
   const vDrag = useRef<{
     id: string;
@@ -568,16 +451,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const nodeDragging = useRef(false);
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
-    if (!active) return;
     if (removeMode) return;
-
-    // Safari Fix: Drag nur für "primary" (sonst killt Safari oft contextmenu)
-    if (isRightClickLike(e)) return;
-
     e.stopPropagation();
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     vDrag.current = {
       id,
       startClient: { x: e.clientX, y: e.clientY },
@@ -586,9 +463,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
-
   function onNodePointerMove(e: PointerEvent) {
-    // Long-press cancel, wenn Touch bewegt
     if (
       e.pointerType === "touch" &&
       touchLongPressTimer.current !== null &&
@@ -602,68 +477,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       }
     }
 
-    // Safari/Mac: pending right-click: decide drag vs open menu
-    const pc = pendingCtxClick.current;
-    if (pc && pc.pointerId === (e as any).pointerId) {
-      pc.lastClient = { x: e.clientX, y: e.clientY };
-
-      const dx = pc.lastClient.x - pc.startClient.x;
-      const dy = pc.lastClient.y - pc.startClient.y;
-      const dist = Math.hypot(dx, dy);
-
-      if (pc.kind === "node" && pc.allowDrag && !pc.startedDrag) {
-        if (dist >= CONTEXT_CLICK_DRAG_THRESHOLD_PX) {
-          // start right-drag node move
-          vDrag.current = {
-            id: pc.nodeId,
-            startClient: pc.startClient,
-            startOffset: pc.startOffset,
-          };
-          pc.startedDrag = true;
-          nodeDragging.current = true;
-          document.documentElement.classList.add("dragging-global");
-        }
-      }
-    }
-
     const d = vDrag.current;
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
     const dy = e.clientY - d.startClient.y;
     setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
-
-  function onNodePointerUp(e: PointerEvent) {
-    // pending context click => open menu on "no-drag"
-    const pc = pendingCtxClick.current;
-    if (pc && pc.pointerId === (e as any).pointerId) {
-      const dx = pc.lastClient.x - pc.startClient.x;
-      const dy = pc.lastClient.y - pc.startClient.y;
-      const dist = Math.hypot(dx, dy);
-
-      if (!removeModeRef.current && dist < CONTEXT_CLICK_DRAG_THRESHOLD_PX) {
-        if (pc.kind === "node") {
-          openColorMenuForNode(e.clientX, e.clientY, pc.nodeId);
-        } else if (pc.kind === "edge") {
-          openColorMenuForEdge(
-            e.clientX,
-            e.clientY,
-            pc.parentId,
-            pc.childId
-          );
-        }
-      }
-
-      clearPendingCtx();
-    }
-
-    if (vDrag.current) {
-      vDrag.current = null;
-      nodeDragging.current = false;
-      document.documentElement.classList.remove("dragging-global");
-    }
+  function onNodePointerUp() {
+    if (!vDrag.current) return;
+    vDrag.current = null;
+    nodeDragging.current = false;
+    document.documentElement.classList.remove("dragging-global");
   }
-
   useEffect(() => {
     window.addEventListener("pointermove", onNodePointerMove);
     window.addEventListener("pointerup", onNodePointerUp);
@@ -740,7 +565,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       last.current = { x: e.clientX, y: e.clientY };
     }
 
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     e.preventDefault();
   };
 
@@ -923,7 +748,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     clientY: number,
     taskId: string
   ) => {
-    if (removeModeRef.current) return;
+    if (removeMode) return;
     setFileMenu((m) => ({ ...m, open: false }));
     setCtxMenu({
       open: true,
@@ -943,7 +768,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     parentId: string,
     childId: string
   ) => {
-    if (removeModeRef.current) return;
+    if (removeMode) return;
     setFileMenu((m) => ({ ...m, open: false }));
     setCtxMenu({
       open: true,
@@ -1101,8 +926,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (suppressNextContextMenu.current) return;
-    if (removeModeRef.current) return;
+    if (removeMode) return;
     openColorMenuForNode(e.clientX, e.clientY, id);
   };
 
@@ -1113,8 +937,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    if (suppressNextContextMenu.current) return;
-    if (removeModeRef.current) return;
+    if (removeMode) return;
     openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
   };
 
@@ -1253,12 +1076,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               e.stopPropagation();
               e.preventDefault();
               startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
-              return;
-            }
-
-            if (isRightClickLike(e)) {
-              startPendingContextForEdge(parentId, childId, e);
-              return;
             }
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1323,15 +1140,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          edgeBaseColor,
-          px,
-          py
-        )
+        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
       );
     });
 
@@ -1401,7 +1210,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               onToggleRemoveTarget(kid.id);
               return;
             }
-
             if (e.pointerType === "touch") {
               e.stopPropagation();
               e.preventDefault();
@@ -1409,22 +1217,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
               return;
             }
-
-            if (isRightClickLike(e)) {
-              startPendingContextForNode(kid.id, e, true);
-              return;
-            }
-
             startNodeDrag(kid.id, e);
           }}
           onPointerUp={() => clearTouchLongPress()}
           onPointerCancel={() => clearTouchLongPress()}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
-          lang={
-            typeof document !== "undefined"
-              ? document.documentElement.lang || navigator.language || "en"
-              : "en"
-          }
+          lang={document.documentElement.lang || navigator.language || "en"}
         >
           {removeMode && (
             <div className="remove-checkbox" aria-hidden="true">
@@ -1556,17 +1354,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           color: lineColor,
         });
 
-        addChildRec(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          px,
-          py,
-          rootBubbleColor,
-          edgeBaseColor,
-          isDone
-        );
+        addChildRec(kid.id, cx, cy, R_CHILD, px, py, rootBubbleColor, edgeBaseColor, isDone);
       });
     };
 
@@ -1586,8 +1374,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const rootTask = getTask(root.id);
       const explicitRootDone =
         typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-      const rootDone =
-        explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
+      const rootDone = explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
 
       const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
 
@@ -1616,17 +1403,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       });
 
       // Children edges + nodes
-      addChildRec(
-        root.id,
-        rx,
-        ry,
-        R_ROOT,
-        0,
-        0,
-        baseBubbleColor,
-        baseEdgeColor,
-        rootDone
-      );
+      addChildRec(root.id, rx, ry, R_ROOT, 0, 0, baseBubbleColor, baseEdgeColor, rootDone);
     });
 
     // Bounds (nur Nodes reichen – Edges liegen innerhalb)
@@ -1661,100 +1438,93 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const dpr = window.devicePixelRatio || 1;
     const base = clamp(dpr * 2, 2, 4);
     const longSide = Math.max(w, h);
-    const maxRatioBySize =
-      EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
+    const maxRatioBySize = EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
     return clamp(Math.min(base, maxRatioBySize), 1, 4);
   };
 
-  type ExportCapture = {
-    dataUrl: string;
-    layout: ExportLayout;
-    pixelRatio: number;
-  };
+type ExportCapture = {
+  dataUrl: string;
+  layout: ExportLayout;
+  pixelRatio: number;
+};
 
-  const captureExport = async (): Promise<ExportCapture> => {
-    if (exportBusy.current) throw new Error("Export already in progress");
-    exportBusy.current = true;
+const captureExport = async (): Promise<ExportCapture> => {
+  if (exportBusy.current) throw new Error("Export already in progress");
+  exportBusy.current = true;
 
-    try {
-      const layout = computeExportLayout();
-      setExportLayout(layout);
-      await wait2Frames();
+  try {
+    const layout = computeExportLayout();
+    setExportLayout(layout);
+    await wait2Frames();
 
-      const el = exportRootRef.current;
-      if (!el) throw new Error("Export root not mounted");
+    const el = exportRootRef.current;
+    if (!el) throw new Error("Export root not mounted");
 
-      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+    const pixelRatio = pickPixelRatio(layout.width, layout.height);
 
-      const dataUrl = await htmlToImage.toPng(el, {
-        backgroundColor: "#ffffff",
-        pixelRatio,
-        cacheBust: true,
-        useCORS: true,
+    const dataUrl = await htmlToImage.toPng(el, {
+      backgroundColor: "#ffffff",
+      pixelRatio,
+      cacheBust: true,
+      useCORS: true,
+      style: { opacity: "1" },
+    });
 
-        // Safari: explizit setzen, damit Bounding/Clipping stabil ist
-        width: layout.width,
-        height: layout.height,
-
-        // Clone-Style: sichtbar machen (Original ist quasi unsichtbar)
-        style: {
-          opacity: "1",
-          visibility: "visible",
-        },
-      });
-
-      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-        throw new Error("Invalid PNG data generated");
-      }
-
-      return { dataUrl, layout, pixelRatio };
-    } finally {
-      setExportLayout(null);
-      exportBusy.current = false;
+    if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+      throw new Error("Invalid PNG data generated");
     }
-  };
 
-  const doDownloadPNG = async () => {
-    try {
-      const { dataUrl } = await captureExport();
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = buildImageFileName(projectTitle, "png");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      window.alert(
-        "Export as PNG failed. Please try again and check the console for details."
-      );
-    }
-  };
+    return { dataUrl, layout, pixelRatio };
+  } finally {
+    setExportLayout(null);
+    exportBusy.current = false;
+  }
+};
+
+
+ const doDownloadPNG = async () => {
+  try {
+    const { dataUrl } = await captureExport();
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = buildImageFileName(projectTitle, "png");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch {
+    window.alert(
+      "Export as PNG failed. Please try again and check the console for details."
+    );
+  }
+};
+
 
   const doDownloadPDF = async () => {
-    try {
-      const { dataUrl, layout } = await captureExport();
+  try {
+    const { dataUrl, layout } = await captureExport();
 
-      // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
-      const pageW = layout.width;
-      const pageH = layout.height;
+    // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
+    const pageW = layout.width;
+    const pageH = layout.height;
 
-      const pdf = new jsPDF({
-        orientation: pageW >= pageH ? "landscape" : "portrait",
-        unit: "px",
-        format: [pageW, pageH],
-        compress: true,
-      });
+    const pdf = new jsPDF({
+      orientation: pageW >= pageH ? "landscape" : "portrait",
+      unit: "px",
+      format: [pageW, pageH],
+      compress: true,
+    });
 
-      // Bild wird (hochaufgelöst) in die kleinere Seite skaliert => mehr "DPI" => sichtbar schärfer
-      pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
+    // Bild wird (hochaufgelöst) in die kleinere Seite skaliert => mehr "DPI" => sichtbar schärfer
+    pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
 
-      pdf.save(buildImageFileName(projectTitle, "pdf"));
-    } catch {
-      window.alert(
-        "Export as PDF failed. Please try again and check the console for details."
-      );
-    }
-  };
+    pdf.save(buildImageFileName(projectTitle, "pdf"));
+  } catch {
+    window.alert(
+      "Export as PDF failed. Please try again and check the console for details."
+    );
+  }
+};
+
 
   /* ---------- Ref-API ---------- */
   const resetView = () => {
@@ -1770,8 +1540,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }));
 
   /* ---------- JSX ---------- */
-  const canPortal = typeof document !== "undefined";
-
   return (
     <>
       <div
@@ -1789,10 +1557,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         onPointerUp={onPointerUpMap}
         onPointerCancel={onPointerUpMap}
         onWheel={onWheel}
-        onContextMenu={(e) => {
-          // Browser context menu im Map-Bereich generell blocken (wir haben eigenes)
-          e.preventDefault();
-        }}
       >
         <div
           className="map-pan"
@@ -1868,33 +1632,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (suppressNextContextMenu.current) return;
                 if (removeMode) return;
                 openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
               }}
               onPointerDown={(e) => {
                 if (removeMode) return;
-
                 if (e.pointerType === "touch") {
                   e.preventDefault();
                   skipClearLongPressOnNextPointerDown.current = true;
                   startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
-                  return;
-                }
-
-                // Safari/Mac: right-click / ctrl-click soll Menü öffnen
-                if (isRightClickLike(e)) {
-                  startPendingContextForNode(CENTER_ID, e, false);
-                  return;
                 }
               }}
               onPointerUp={() => clearTouchLongPress()}
               onPointerCancel={() => clearTouchLongPress()}
-              lang={
-                typeof document !== "undefined"
-                  ? document.documentElement.lang || navigator.language || "en"
-                  : "en"
-              }
+              lang={document.documentElement.lang || navigator.language || "en"}
             >
               {centerDone && (
                 <div className="done-badge" aria-hidden="true">
@@ -1941,9 +1692,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     }}
                     data-done={rootDone ? "true" : "false"}
                     data-remove-mode={removeMode ? "true" : "false"}
-                    data-remove-selected={
-                      isRootSelectedForRemove ? "true" : "false"
-                    }
+                    data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
                     onPointerDown={(e) => {
                       if (removeMode) {
                         e.stopPropagation();
@@ -1951,7 +1700,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                         onToggleRemoveTarget(root.id);
                         return;
                       }
-
                       if (e.pointerType === "touch") {
                         e.stopPropagation();
                         e.preventDefault();
@@ -1959,24 +1707,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                         startTouchLongPressForNode(root.id, e.clientX, e.clientY);
                         return;
                       }
-
-                      if (isRightClickLike(e)) {
-                        startPendingContextForNode(root.id, e, true);
-                        return;
-                      }
-
                       startNodeDrag(root.id, e);
                     }}
                     onPointerUp={() => clearTouchLongPress()}
                     onPointerCancel={() => clearTouchLongPress()}
                     onContextMenu={(e) => onNodeContextMenu(e, root.id)}
-                    lang={
-                      typeof document !== "undefined"
-                        ? document.documentElement.lang ||
-                          navigator.language ||
-                          "en"
-                        : "en"
-                    }
+                    lang={document.documentElement.lang || navigator.language || "en"}
                   >
                     {removeMode && (
                       <div className="remove-checkbox" aria-hidden="true">
@@ -2039,10 +1775,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           >
             <div className="ctxmenu-header">
               {ctxMenu.kind === "node" ? (
-                <div
-                  className="ctxmenu-tabRow"
-                  style={{ display: "flex", gap: 10 }}
-                >
+                <div className="ctxmenu-tabRow" style={{ display: "flex", gap: 10 }}>
                   <button
                     className={
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
@@ -2084,9 +1817,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             </div>
 
             <div className="ctxmenu-body">
-              {ctxMenu.kind === "node" &&
-              ctxMenu.tab === "files" &&
-              ctxMenu.nodeId ? (
+              {ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
                 <div className="ctxmenu-filesView">
                   <button
                     className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
@@ -2109,22 +1840,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(
-                                e.clientX,
-                                e.clientY,
-                                ctxMenu.nodeId!,
-                                att.id
-                              );
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(
-                                e.clientX,
-                                e.clientY,
-                                ctxMenu.nodeId!,
-                                att.id
-                              );
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
                             }}
                           >
                             <span className="ctxmenu-fileBullet">•</span>
@@ -2221,115 +1942,97 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         />
       </div>
 
-      {/* Export-only DOM (Portal in body, Safari/iOS stabiler) */}
-      {exportLayout &&
-        canPortal &&
-        createPortal(
-          <div
-            ref={exportRootRef}
-            style={{
-              position: "fixed",
-              left: 0,
-              top: 0,
-              width: exportLayout.width,
-              height: exportLayout.height,
-              background: "#ffffff",
+      {/* Export-only DOM (unsichtbar, keine pan/scale transforms, gleiche CSS) */}
+      {exportLayout && (
+        <div
+          ref={exportRootRef}
+          style={{
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: exportLayout.width,
+  height: exportLayout.height,
+  background: "#ffffff",
+  overflow: "hidden",
 
-              // Safari/iOS: opacity:0 kann zu Render/Shadow Bugs führen => tiny opacity
-              opacity: 0.001,
-              visibility: "hidden",
-              pointerEvents: "none",
+  // wichtig: NICHT offscreen verschieben (sonst weißer Export)
+  // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
+  opacity: 0,
+  pointerEvents: "none",
+}}
 
-              // kein clipping, Padding ist already im Layout
-              overflow: "visible",
-
-              // isoliert Render/BBox besser auf Safari
-              contain: "layout paint size style",
-              transform: "translateZ(0)",
-            }}
-            aria-hidden="true"
+          aria-hidden="true"
+        >
+          {/* Edges */}
+          <svg
+            width={exportLayout.width}
+            height={exportLayout.height}
+            style={{ position: "absolute", inset: 0, overflow: "visible" }}
           >
-            {/* Edges */}
-            <svg
-              width={exportLayout.width}
-              height={exportLayout.height}
-              style={{ position: "absolute", inset: 0, overflow: "visible" }}
-            >
-              {exportLayout.edges.map((e, idx) => (
-                <line
-                  key={`${e.parentId}-${e.childId}-${idx}`}
-                  x1={exportLayout.originX + e.x1}
-                  y1={exportLayout.originY + e.y1}
-                  x2={exportLayout.originX + e.x2}
-                  y2={exportLayout.originY + e.y2}
-                  stroke={e.color}
-                  strokeWidth={3}
-                  strokeLinecap="round"
-                />
-              ))}
-            </svg>
+            {exportLayout.edges.map((e, idx) => (
+              <line
+                key={`${e.parentId}-${e.childId}-${idx}`}
+                x1={exportLayout.originX + e.x1}
+                y1={exportLayout.originY + e.y1}
+                x2={exportLayout.originX + e.x2}
+                y2={exportLayout.originY + e.y2}
+                stroke={e.color}
+                strokeWidth={3}
+                strokeLinecap="round"
+              />
+            ))}
+          </svg>
 
-            {/* Nodes */}
-            <div style={{ position: "absolute", inset: 0 }}>
-              {exportLayout.nodes.map((n) => {
-                const isCenter = n.kind === "center";
-                const isRoot = n.kind === "root";
-                const isChild = n.kind === "child";
+          {/* Nodes */}
+          <div style={{ position: "absolute", inset: 0 }}>
+            {exportLayout.nodes.map((n) => {
+              const isCenter = n.kind === "center";
+              const isRoot = n.kind === "root";
+              const isChild = n.kind === "child";
 
-                const cls =
-                  "skill-node " +
-                  (isCenter
-                    ? "center-node"
-                    : isChild
-                    ? "child-node"
-                    : "root-node") +
-                  (removeMode ? " node-remove-mode" : "") +
-                  (n.removeSelected ? " node-remove-selected" : "");
+              const cls =
+                "skill-node " +
+                (isCenter ? "center-node" : isChild ? "child-node" : "root-node") +
+                (removeMode ? " node-remove-mode" : "") +
+                (n.removeSelected ? " node-remove-selected" : "");
 
-                // Safari Export Fix: keine transform-Zentrierung (verursacht oft Shadow-Offsets)
-                const left = exportLayout.originX + n.x - n.r;
-                const top = exportLayout.originY + n.y - n.r;
-
-                return (
-                  <div
-                    key={n.id}
-                    className={cls}
-                    style={{
-                      left,
-                      top,
-                      width: n.r * 2,
-                      height: n.r * 2,
-                      background: n.bubbleColor,
-                      position: "absolute",
-                      transform: "none",
-                    }}
-                    data-done={n.done ? "true" : "false"}
-                    data-remove-mode={removeMode ? "true" : "false"}
-                    data-remove-selected={n.removeSelected ? "true" : "false"}
-                  >
-                    {removeMode && (
-                      <div className="remove-checkbox" aria-hidden="true">
-                        {n.removeSelected && (
-                          <div className="remove-checkbox-mark">✕</div>
-                        )}
-                      </div>
-                    )}
-                    {n.done && (
-                      <div className="done-badge" aria-hidden="true">
-                        <span className="done-badge-check">✓</span>
-                      </div>
-                    )}
-                    {renderTitleAsSpans(
-                      n.title,
-                      isCenter ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>,
-          document.body
-        )}
+              return (
+                <div
+                  key={n.id}
+                  className={cls}
+                  style={{
+                    left: exportLayout.originX + n.x,
+                    top: exportLayout.originY + n.y,
+                    transform: "translate(-50%, -50%)",
+                    background: n.bubbleColor,
+                    position: "absolute",
+                  }}
+                  data-done={n.done ? "true" : "false"}
+                  data-remove-mode={removeMode ? "true" : "false"}
+                  data-remove-selected={n.removeSelected ? "true" : "false"}
+                >
+                  {removeMode && (
+                    <div className="remove-checkbox" aria-hidden="true">
+                      {n.removeSelected && (
+                        <div className="remove-checkbox-mark">✕</div>
+                      )}
+                    </div>
+                  )}
+                  {n.done && (
+                    <div className="done-badge" aria-hidden="true">
+                      <span className="done-badge-check">✓</span>
+                    </div>
+                  )}
+                  {renderTitleAsSpans(
+                    n.title,
+                    isCenter ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </>
   );
 });
