@@ -442,45 +442,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }, TOUCH_LONGPRESS_DELAY_MS);
   };
 
-  /* ---------- macOS Context Click Detection (Safari + Chrome) ---------- */
-
-  const lastCtxOpenTs = useRef<number>(0);
-
-  const isContextClick = (e: any) => {
-    // Touch: Contextmenu wird über Long-Press behandelt
-    const pointerType = e?.pointerType;
-    if (pointerType === "touch") return false;
-
-    const button = typeof e?.button === "number" ? e.button : 0; // 0 left, 2 right
-    const buttons = typeof e?.buttons === "number" ? e.buttons : 0; // bitmask
-
-    // echte rechte Taste / Secondary click (Trackpad)
-    const rightButton = button === 2 || (buttons & 2) === 2;
-
-    // macOS Ctrl+Click -> Kontextklick
-    const ctrlClick = button === 0 && !!e?.ctrlKey;
-
-    // optional: Meta+Click als Kontext (manche Setups)
-    const metaClick = button === 0 && !!e?.metaKey;
-
-    return rightButton || ctrlClick || metaClick;
-  };
-
-  const guardCtxOpen = (e: any) => {
-    const now =
-      typeof performance !== "undefined" && performance.now
-        ? performance.now()
-        : Date.now();
-    if (now - lastCtxOpenTs.current < 140) {
-      // Doppelfeuer (pointerdown + mousedown) -> blocken
-      e.preventDefault?.();
-      e.stopPropagation?.();
-      return false;
-    }
-    lastCtxOpenTs.current = now;
-    return true;
-  };
-
   /* ---------- Node-Drag (Desktop / Maus + Touch) ---------- */
   const vDrag = useRef<{
     id: string;
@@ -492,12 +453,17 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   function startNodeDrag(id: string, e: React.PointerEvent) {
     if (removeMode) return;
 
-    // macOS: Ctrl+Click / RightClick darf NIE Drag starten (sonst kein Menü)
-    if (isContextClick(e)) return;
+    // ✅ FIX (macOS): Drag nur bei Linksklick (button=0) und ohne Ctrl/Meta,
+    // damit Ctrl+Click / Rechtsklick das ContextMenu nicht blockiert.
+    if (e.pointerType !== "touch") {
+      if (typeof (e as any).button === "number" && (e as any).button !== 0) return;
+      if (e.ctrlKey || e.metaKey) return;
+    }
 
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
     vDrag.current = {
       id,
       startClient: { x: e.clientX, y: e.clientY },
@@ -595,6 +561,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
 
     if (nodeDragging.current) return;
+
+    // ✅ FIX (macOS): Pan NICHT starten bei Rechtsklick oder Ctrl/Meta-Click,
+    // sonst wird das ContextMenu-Event häufig unterdrückt.
+    if (e.pointerType !== "touch") {
+      if (typeof (e as any).button === "number" && (e as any).button !== 0) return;
+      if (e.ctrlKey || e.metaKey) return;
+    }
 
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -825,33 +798,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       edgeChildId: childId,
       tab: "color",
     });
-  };
-
-  // macOS: Menü NICHT von onContextMenu abhängig machen -> direkt bei pointer/mouse down öffnen
-  const tryOpenNodeContextMenuFromAnyDown = (e: any, id: string) => {
-    if (removeMode) return false;
-    if (!isContextClick(e)) return false;
-    if (!guardCtxOpen(e)) return true;
-
-    e.preventDefault?.();
-    e.stopPropagation?.();
-    openColorMenuForNode(e.clientX, e.clientY, id);
-    return true;
-  };
-
-  const tryOpenEdgeContextMenuFromAnyDown = (
-    e: any,
-    parentId: string,
-    childId: string
-  ) => {
-    if (removeMode) return false;
-    if (!isContextClick(e)) return false;
-    if (!guardCtxOpen(e)) return true;
-
-    e.preventDefault?.();
-    e.stopPropagation?.();
-    openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
-    return true;
   };
 
   const closeColorMenu = () => {
@@ -1143,19 +1089,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           style={{ pointerEvents: "stroke" }}
           onContextMenu={(e) => onEdgeContextMenu(e, parentId, childId)}
           onPointerDown={(e) => {
-            // macOS: Kontextklick (Right / Ctrl+Click) sofort abfangen
-            if (tryOpenEdgeContextMenuFromAnyDown(e, parentId, childId)) return;
-
             if (e.pointerType === "touch") {
               if (removeMode) return;
               e.stopPropagation();
               e.preventDefault();
               startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
             }
-          }}
-          onMouseDown={(e) => {
-            // Backup, falls Browser PointerEvents anders mapped
-            tryOpenEdgeContextMenuFromAnyDown(e, parentId, childId);
           }}
           onPointerUp={() => clearTouchLongPress()}
           onPointerCancel={() => clearTouchLongPress()}
@@ -1219,15 +1158,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          edgeBaseColor,
-          px,
-          py
-        )
+        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
       );
     });
 
@@ -1290,13 +1221,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           data-done={isDone ? "true" : "false"}
           data-remove-mode={removeMode ? "true" : "false"}
           data-remove-selected={isSelectedForRemove ? "true" : "false"}
-          onPointerDownCapture={(e) => {
-            // macOS: Kontextklick in CAPTURE abfangen, bevor Drag/Pan startet
-            tryOpenNodeContextMenuFromAnyDown(e, kid.id);
-          }}
-          onMouseDownCapture={(e) => {
-            tryOpenNodeContextMenuFromAnyDown(e, kid.id);
-          }}
           onPointerDown={(e) => {
             if (removeMode) {
               e.stopPropagation();
@@ -1448,17 +1372,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           color: lineColor,
         });
 
-        addChildRec(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          px,
-          py,
-          rootBubbleColor,
-          edgeBaseColor,
-          isDone
-        );
+        addChildRec(kid.id, cx, cy, R_CHILD, px, py, rootBubbleColor, edgeBaseColor, isDone);
       });
     };
 
@@ -1478,8 +1392,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const rootTask = getTask(root.id);
       const explicitRootDone =
         typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-      const rootDone =
-        explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
+      const rootDone = explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
 
       const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
 
@@ -1508,17 +1421,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       });
 
       // Children edges + nodes
-      addChildRec(
-        root.id,
-        rx,
-        ry,
-        R_ROOT,
-        0,
-        0,
-        baseBubbleColor,
-        baseEdgeColor,
-        rootDone
-      );
+      addChildRec(root.id, rx, ry, R_ROOT, 0, 0, baseBubbleColor, baseEdgeColor, rootDone);
     });
 
     // Bounds (nur Nodes reichen – Edges liegen innerhalb)
@@ -1553,8 +1456,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const dpr = window.devicePixelRatio || 1;
     const base = clamp(dpr * 2, 2, 4);
     const longSide = Math.max(w, h);
-    const maxRatioBySize =
-      EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
+    const maxRatioBySize = EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
     return clamp(Math.min(base, maxRatioBySize), 1, 4);
   };
 
@@ -1629,7 +1531,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       });
 
       pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
-
       pdf.save(buildImageFileName(projectTitle, "pdf"));
     } catch {
       window.alert(
@@ -1688,14 +1589,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 const ro = getOffset(root.id);
                 const rx = rxBase + ro.x;
                 const ry = ryBase + ro.y;
-                const seg = segmentBetweenCircles(
-                  0,
-                  0,
-                  R_CENTER,
-                  rx,
-                  ry,
-                  R_ROOT
-                );
+                const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
 
                 const baseBubbleColor =
                   branchColorOverride[root.id] ??
@@ -1748,12 +1642,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               className="skill-node center-node"
               style={{ background: centerColor }}
               data-done={centerDone ? "true" : "false"}
-              onPointerDownCapture={(e) => {
-                tryOpenNodeContextMenuFromAnyDown(e, CENTER_ID);
-              }}
-              onMouseDownCapture={(e) => {
-                tryOpenNodeContextMenuFromAnyDown(e, CENTER_ID);
-              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1817,15 +1705,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     }}
                     data-done={rootDone ? "true" : "false"}
                     data-remove-mode={removeMode ? "true" : "false"}
-                    data-remove-selected={
-                      isRootSelectedForRemove ? "true" : "false"
-                    }
-                    onPointerDownCapture={(e) => {
-                      tryOpenNodeContextMenuFromAnyDown(e, root.id);
-                    }}
-                    onMouseDownCapture={(e) => {
-                      tryOpenNodeContextMenuFromAnyDown(e, root.id);
-                    }}
+                    data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
                     onPointerDown={(e) => {
                       if (removeMode) {
                         e.stopPropagation();
@@ -1837,11 +1717,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                         e.stopPropagation();
                         e.preventDefault();
                         startNodeDrag(root.id, e);
-                        startTouchLongPressForNode(
-                          root.id,
-                          e.clientX,
-                          e.clientY
-                        );
+                        startTouchLongPressForNode(root.id, e.clientX, e.clientY);
                         return;
                       }
                       startNodeDrag(root.id, e);
@@ -1912,18 +1788,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           >
             <div className="ctxmenu-header">
               {ctxMenu.kind === "node" ? (
-                <div
-                  className="ctxmenu-tabRow"
-                  style={{ display: "flex", gap: 10 }}
-                >
+                <div className="ctxmenu-tabRow" style={{ display: "flex", gap: 10 }}>
                   <button
                     className={
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
                       (ctxMenu.tab === "color" ? " ctxmenu-tabBtn-active" : "")
                     }
-                    onClick={() =>
-                      setCtxMenu((prev) => ({ ...prev, tab: "color" }))
-                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "color" }))}
                   >
                     Color
                   </button>
@@ -1932,9 +1803,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
                       (ctxMenu.tab === "files" ? " ctxmenu-tabBtn-active" : "")
                     }
-                    onClick={() =>
-                      setCtxMenu((prev) => ({ ...prev, tab: "files" }))
-                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "files" }))}
                   >
                     Files
                   </button>
@@ -1961,9 +1830,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             </div>
 
             <div className="ctxmenu-body">
-              {ctxMenu.kind === "node" &&
-              ctxMenu.tab === "files" &&
-              ctxMenu.nodeId ? (
+              {ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
                 <div className="ctxmenu-filesView">
                   <button
                     className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
@@ -1972,17 +1839,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     + Add PDF
                   </button>
                   {getAttachmentsForNode(ctxMenu.nodeId).length === 0 ? (
-                    <div className="ctxmenu-filesEmpty">
-                      No PDFs attached yet.
-                    </div>
+                    <div className="ctxmenu-filesEmpty">No PDFs attached yet.</div>
                   ) : (
                     <ul
                       className="ctxmenu-fileList"
-                      style={{
-                        listStyle: "none",
-                        padding: 0,
-                        margin: "10px 0 0 0",
-                      }}
+                      style={{ listStyle: "none", padding: 0, margin: "10px 0 0 0" }}
                     >
                       {getAttachmentsForNode(ctxMenu.nodeId).map((att) => (
                         <li key={att.id} className="ctxmenu-fileItem">
@@ -1992,32 +1853,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(
-                                e.clientX,
-                                e.clientY,
-                                ctxMenu.nodeId!,
-                                att.id
-                              );
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(
-                                e.clientX,
-                                e.clientY,
-                                ctxMenu.nodeId!,
-                                att.id
-                              );
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
                             }}
                           >
                             <span className="ctxmenu-fileBullet">•</span>
                             <span className="ctxmenu-fileIcon" aria-hidden="true">
                               📄
                             </span>
-                            <span
-                              className="ctxmenu-fileName"
-                              style={{ color: "#e5e7eb" }}
-                            >
+                            <span className="ctxmenu-fileName" style={{ color: "#e5e7eb" }}>
                               {att.name}
                             </span>
                           </button>
@@ -2119,9 +1967,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             height: exportLayout.height,
             background: "#ffffff",
             overflow: "hidden",
-
-            // wichtig: NICHT offscreen verschieben (sonst weißer Export)
-            // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
             opacity: 0,
             pointerEvents: "none",
           }}
