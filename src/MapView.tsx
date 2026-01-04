@@ -1442,84 +1442,89 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return clamp(Math.min(base, maxRatioBySize), 1, 4);
   };
 
-  const captureExportAsPngDataUrl = async (): Promise<string> => {
-    if (exportBusy.current) throw new Error("Export already in progress");
-    exportBusy.current = true;
+type ExportCapture = {
+  dataUrl: string;
+  layout: ExportLayout;
+  pixelRatio: number;
+};
 
-    try {
-      const layout = computeExportLayout();
-      setExportLayout(layout);
-      await wait2Frames();
+const captureExport = async (): Promise<ExportCapture> => {
+  if (exportBusy.current) throw new Error("Export already in progress");
+  exportBusy.current = true;
 
-      const el = exportRootRef.current;
-      if (!el) throw new Error("Export root not mounted");
+  try {
+    const layout = computeExportLayout();
+    setExportLayout(layout);
+    await wait2Frames();
 
-      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+    const el = exportRootRef.current;
+    if (!el) throw new Error("Export root not mounted");
 
-      const dataUrl = await htmlToImage.toPng(el, {
-        backgroundColor: "#ffffff",
-        pixelRatio,
-        cacheBust: true,
-        useCORS: true,
-		style: { opacity: "1" },
-      });
+    const pixelRatio = pickPixelRatio(layout.width, layout.height);
 
-      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-        throw new Error("Invalid PNG data generated");
-      }
+    const dataUrl = await htmlToImage.toPng(el, {
+      backgroundColor: "#ffffff",
+      pixelRatio,
+      cacheBust: true,
+      useCORS: true,
+      style: { opacity: "1" },
+    });
 
-      return dataUrl;
-    } finally {
-      setExportLayout(null);
-      exportBusy.current = false;
+    if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+      throw new Error("Invalid PNG data generated");
     }
-  };
 
-  const doDownloadPNG = async () => {
-    try {
-      const dataUrl = await captureExportAsPngDataUrl();
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = buildImageFileName(projectTitle, "png");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      window.alert(
-        "Export as PNG failed. Please try again and check the console for details."
-      );
-    }
-  };
+    return { dataUrl, layout, pixelRatio };
+  } finally {
+    setExportLayout(null);
+    exportBusy.current = false;
+  }
+};
+
+
+ const doDownloadPNG = async () => {
+  try {
+    const { dataUrl } = await captureExport();
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = buildImageFileName(projectTitle, "png");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch {
+    window.alert(
+      "Export as PNG failed. Please try again and check the console for details."
+    );
+  }
+};
+
 
   const doDownloadPDF = async () => {
-    try {
-      const imgData = await captureExportAsPngDataUrl();
+  try {
+    const { dataUrl, layout } = await captureExport();
 
-      const img = new Image();
-      img.src = imgData;
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Image load failed"));
-      });
+    // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
+    const pageW = layout.width;
+    const pageH = layout.height;
 
-      const width = img.naturalWidth || img.width;
-      const height = img.naturalHeight || img.height;
+    const pdf = new jsPDF({
+      orientation: pageW >= pageH ? "landscape" : "portrait",
+      unit: "px",
+      format: [pageW, pageH],
+      compress: true,
+    });
 
-      const pdf = new jsPDF({
-        orientation: width >= height ? "landscape" : "portrait",
-        unit: "px",
-        format: [width, height],
-        compress: true,
-      });
+    // Bild wird (hochaufgelöst) in die kleinere Seite skaliert => mehr "DPI" => sichtbar schärfer
+    pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
 
-      pdf.addImage(imgData, "PNG", 0, 0, width, height);
-      pdf.save(buildImageFileName(projectTitle, "pdf"));
-    } catch {
-      window.alert(
-        "Export as PDF failed. Please try again and check the console for details."
-      );
-    }
-  };
+    pdf.save(buildImageFileName(projectTitle, "pdf"));
+  } catch {
+    window.alert(
+      "Export as PDF failed. Please try again and check the console for details."
+    );
+  }
+};
+
 
   /* ---------- Ref-API ---------- */
   const resetView = () => {
