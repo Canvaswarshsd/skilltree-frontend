@@ -563,20 +563,23 @@ html, body { overflow: hidden; }
 }
 
 
-/* ===== TaskMap: MapView offscreen mount (Export auch im Edit) ===== */
-.map-host {
+
+/* ===== MapView Host (MapView bleibt gemountet für Export) ===== */
+.map-host{
   flex: 1;
-  position: relative;
-  width: 100%;
+  min-width: 0;
   height: 100%;
+  position: relative;
 }
 
-.map-host-hidden {
+/* Map im Edit-Modus offscreen halten, aber NICHT display:none (sonst weißer Export) */
+.map-host-hidden{
   position: fixed;
-  left: -100000px;
+  left: -200vw;
   top: 0;
-  width: 1400px;
-  height: 900px;
-  opacity: 0;
+  width: 100vw;
+  height: 100vh;
   pointer-events: none;
+  opacity: 0;
 }
+
