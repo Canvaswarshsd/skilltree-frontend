@@ -1240,8 +1240,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   startNodeDrag(kid.id, e);
 }}
 
-            startNodeDrag(kid.id, e);
-          }}
+            
           onPointerUp={() => clearTouchLongPress()}
           onPointerCancel={() => clearTouchLongPress()}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
@@ -1741,7 +1740,7 @@ const captureExport = async (): Promise<ExportCapture> => {
 
   startNodeDrag(root.id, e);
 }}
-
+	
                       startNodeDrag(root.id, e);
                     }}
                     onPointerUp={() => clearTouchLongPress()}
