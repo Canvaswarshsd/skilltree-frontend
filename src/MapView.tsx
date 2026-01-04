@@ -1215,32 +1215,21 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           data-remove-mode={removeMode ? "true" : "false"}
           data-remove-selected={isSelectedForRemove ? "true" : "false"}
           onPointerDown={(e) => {
-  // ✅ macOS: Right-Click / Ctrl-Click soll Menü öffnen, nicht Drag starten
-  if (e.pointerType === "mouse") {
-    const wantsContextMenu =
-      e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
-    if (wantsContextMenu) return;
-  }
-
-  if (removeMode) {
-    e.stopPropagation();
-    e.preventDefault();
-    onToggleRemoveTarget(kid.id);
-    return;
-  }
-
-  if (e.pointerType === "touch") {
-    e.stopPropagation();
-    e.preventDefault();
-    startNodeDrag(kid.id, e);
-    startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
-    return;
-  }
-
-  startNodeDrag(kid.id, e);
-}}
-
-     
+            if (removeMode) {
+              e.stopPropagation();
+              e.preventDefault();
+              onToggleRemoveTarget(kid.id);
+              return;
+            }
+            if (e.pointerType === "touch") {
+              e.stopPropagation();
+              e.preventDefault();
+              startNodeDrag(kid.id, e);
+              startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
+              return;
+            }
+            startNodeDrag(kid.id, e);
+          }}
           onPointerUp={() => clearTouchLongPress()}
           onPointerCancel={() => clearTouchLongPress()}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
@@ -1715,33 +1704,22 @@ const captureExport = async (): Promise<ExportCapture> => {
                     data-done={rootDone ? "true" : "false"}
                     data-remove-mode={removeMode ? "true" : "false"}
                     data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
-                   onPointerDown={(e) => {
-  // ✅ macOS: Right-Click / Ctrl-Click soll Menü öffnen, nicht Drag starten
-  if (e.pointerType === "mouse") {
-    const wantsContextMenu =
-      e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
-    if (wantsContextMenu) return;
-  }
-
-  if (removeMode) {
-    e.stopPropagation();
-    e.preventDefault();
-    onToggleRemoveTarget(root.id);
-    return;
-  }
-
-  if (e.pointerType === "touch") {
-    e.stopPropagation();
-    e.preventDefault();
-    startNodeDrag(root.id, e);
-    startTouchLongPressForNode(root.id, e.clientX, e.clientY);
-    return;
-  }
-
-  startNodeDrag(root.id, e);
-}}
-	
-                    
+                    onPointerDown={(e) => {
+                      if (removeMode) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onToggleRemoveTarget(root.id);
+                        return;
+                      }
+                      if (e.pointerType === "touch") {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        startNodeDrag(root.id, e);
+                        startTouchLongPressForNode(root.id, e.clientX, e.clientY);
+                        return;
+                      }
+                      startNodeDrag(root.id, e);
+                    }}
                     onPointerUp={() => clearTouchLongPress()}
                     onPointerCancel={() => clearTouchLongPress()}
                     onContextMenu={(e) => onNodeContextMenu(e, root.id)}
