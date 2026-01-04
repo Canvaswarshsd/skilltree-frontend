@@ -452,18 +452,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
     if (removeMode) return;
-
-    // ✅ FIX (macOS): Drag nur bei Linksklick (button=0) und ohne Ctrl/Meta,
-    // damit Ctrl+Click / Rechtsklick das ContextMenu nicht blockiert.
-    if (e.pointerType !== "touch") {
-      if (typeof (e as any).button === "number" && (e as any).button !== 0) return;
-      if (e.ctrlKey || e.metaKey) return;
-    }
-
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-
     vDrag.current = {
       id,
       startClient: { x: e.clientX, y: e.clientY },
@@ -472,7 +463,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
-
   function onNodePointerMove(e: PointerEvent) {
     if (
       e.pointerType === "touch" &&
@@ -561,14 +551,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
 
     if (nodeDragging.current) return;
-
-    // ✅ FIX (macOS): Pan NICHT starten bei Rechtsklick oder Ctrl/Meta-Click,
-    // sonst wird das ContextMenu-Event häufig unterdrückt.
-    if (e.pointerType !== "touch") {
-      if (typeof (e as any).button === "number" && (e as any).button !== 0) return;
-      if (e.ctrlKey || e.metaKey) return;
-    }
-
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.current.size === 2) {
@@ -1460,84 +1442,89 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return clamp(Math.min(base, maxRatioBySize), 1, 4);
   };
 
-  type ExportCapture = {
-    dataUrl: string;
-    layout: ExportLayout;
-    pixelRatio: number;
-  };
+type ExportCapture = {
+  dataUrl: string;
+  layout: ExportLayout;
+  pixelRatio: number;
+};
 
-  const captureExport = async (): Promise<ExportCapture> => {
-    if (exportBusy.current) throw new Error("Export already in progress");
-    exportBusy.current = true;
+const captureExport = async (): Promise<ExportCapture> => {
+  if (exportBusy.current) throw new Error("Export already in progress");
+  exportBusy.current = true;
 
-    try {
-      const layout = computeExportLayout();
-      setExportLayout(layout);
-      await wait2Frames();
+  try {
+    const layout = computeExportLayout();
+    setExportLayout(layout);
+    await wait2Frames();
 
-      const el = exportRootRef.current;
-      if (!el) throw new Error("Export root not mounted");
+    const el = exportRootRef.current;
+    if (!el) throw new Error("Export root not mounted");
 
-      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+    const pixelRatio = pickPixelRatio(layout.width, layout.height);
 
-      const dataUrl = await htmlToImage.toPng(el, {
-        backgroundColor: "#ffffff",
-        pixelRatio,
-        cacheBust: true,
-        useCORS: true,
-        style: { opacity: "1" },
-      });
+    const dataUrl = await htmlToImage.toPng(el, {
+      backgroundColor: "#ffffff",
+      pixelRatio,
+      cacheBust: true,
+      useCORS: true,
+      style: { opacity: "1" },
+    });
 
-      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-        throw new Error("Invalid PNG data generated");
-      }
-
-      return { dataUrl, layout, pixelRatio };
-    } finally {
-      setExportLayout(null);
-      exportBusy.current = false;
+    if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+      throw new Error("Invalid PNG data generated");
     }
-  };
 
-  const doDownloadPNG = async () => {
-    try {
-      const { dataUrl } = await captureExport();
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = buildImageFileName(projectTitle, "png");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
-      window.alert(
-        "Export as PNG failed. Please try again and check the console for details."
-      );
-    }
-  };
+    return { dataUrl, layout, pixelRatio };
+  } finally {
+    setExportLayout(null);
+    exportBusy.current = false;
+  }
+};
+
+
+ const doDownloadPNG = async () => {
+  try {
+    const { dataUrl } = await captureExport();
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = buildImageFileName(projectTitle, "png");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch {
+    window.alert(
+      "Export as PNG failed. Please try again and check the console for details."
+    );
+  }
+};
+
 
   const doDownloadPDF = async () => {
-    try {
-      const { dataUrl, layout } = await captureExport();
+  try {
+    const { dataUrl, layout } = await captureExport();
 
-      // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
-      const pageW = layout.width;
-      const pageH = layout.height;
+    // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
+    const pageW = layout.width;
+    const pageH = layout.height;
 
-      const pdf = new jsPDF({
-        orientation: pageW >= pageH ? "landscape" : "portrait",
-        unit: "px",
-        format: [pageW, pageH],
-        compress: true,
-      });
+    const pdf = new jsPDF({
+      orientation: pageW >= pageH ? "landscape" : "portrait",
+      unit: "px",
+      format: [pageW, pageH],
+      compress: true,
+    });
 
-      pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
-      pdf.save(buildImageFileName(projectTitle, "pdf"));
-    } catch {
-      window.alert(
-        "Export as PDF failed. Please try again and check the console for details."
-      );
-    }
-  };
+    // Bild wird (hochaufgelöst) in die kleinere Seite skaliert => mehr "DPI" => sichtbar schärfer
+    pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
+
+    pdf.save(buildImageFileName(projectTitle, "pdf"));
+  } catch {
+    window.alert(
+      "Export as PDF failed. Please try again and check the console for details."
+    );
+  }
+};
+
 
   /* ---------- Ref-API ---------- */
   const resetView = () => {
@@ -1960,16 +1947,20 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         <div
           ref={exportRootRef}
           style={{
-            position: "fixed",
-            left: 0,
-            top: 0,
-            width: exportLayout.width,
-            height: exportLayout.height,
-            background: "#ffffff",
-            overflow: "hidden",
-            opacity: 0,
-            pointerEvents: "none",
-          }}
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: exportLayout.width,
+  height: exportLayout.height,
+  background: "#ffffff",
+  overflow: "hidden",
+
+  // wichtig: NICHT offscreen verschieben (sonst weißer Export)
+  // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
+  opacity: 0,
+  pointerEvents: "none",
+}}
+
           aria-hidden="true"
         >
           {/* Edges */}
