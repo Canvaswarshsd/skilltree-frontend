@@ -146,18 +146,14 @@ const MAXLEN_ROOT_AND_CHILD = 12;
 const TOUCH_LONGPRESS_DELAY_MS = 450;
 const TOUCH_LONGPRESS_MOVE_CANCEL_PX = 12;
 
-/* ---------- FIX 1: macOS Right-Click zuverlässig ---------- */
-const RIGHTCLICK_DRAG_THRESHOLD_PX = 8; // ab da = drag, sonst = menu
-const SUPPRESS_NATIVE_CTX_MS = 350; // verhindert doppeltes Öffnen (onContextMenu)
-
 /* Export: Minimaler Weißrand + Shadow-Sicherheitsrand */
 const EXPORT_MIN_PADDING_PX = 18;
 
-/* ---------- FIX 2: Export Shadow Pad größer (verhindert "abgeschnittene" Schatten auf macOS) ---------- */
-// vorher: X=36, TOP=24, BOTTOM=48
-const EXPORT_SHADOW_PAD_X = 80;
-const EXPORT_SHADOW_PAD_TOP = 60;
-const EXPORT_SHADOW_PAD_BOTTOM = 110;
+// Box-shadow in App.css: 0 12px 36px
+// Horizontal ~36px, oben ~24px, unten ~48px (Blur +/- Offset)
+const EXPORT_SHADOW_PAD_X = 36;
+const EXPORT_SHADOW_PAD_TOP = 24;
+const EXPORT_SHADOW_PAD_BOTTOM = 48;
 
 const EXPORT_MAX_PIXELS_ON_LONG_SIDE = 12000; // dynamische pixelRatio-Bremse
 
@@ -244,11 +240,6 @@ function makeId() {
     .slice(2, 8)}`;
 }
 
-/* ---------- FIX 1 helper: Right-Click inkl. Ctrl-Click (macOS) ---------- */
-function isContextClick(e: { button: number; ctrlKey?: boolean }) {
-  return e.button === 2 || (e.button === 0 && !!e.ctrlKey);
-}
-
 /* ---------- Export Layout Types ---------- */
 type ExportNode = {
   id: string;
@@ -280,28 +271,6 @@ type ExportLayout = {
   nodes: ExportNode[];
   edges: ExportEdge[];
 };
-
-/* ---------- FIX 1: Pending Right-Click State ---------- */
-type PendingCtx =
-  | {
-      kind: "node";
-      nodeId: string;
-      pointerId: number;
-      startClient: { x: number; y: number };
-      lastClient: { x: number; y: number };
-      allowDrag: boolean; // für root/child true, center false (center soll pan können)
-      startOffset: { x: number; y: number };
-      dragStarted: boolean;
-      blockPan: boolean; // für root/child true; center false
-    }
-  | {
-      kind: "edge";
-      parentId: string;
-      childId: string;
-      pointerId: number;
-      startClient: { x: number; y: number };
-      lastClient: { x: number; y: number };
-    };
 
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
@@ -370,7 +339,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }
 
   const totalTasks = tasks.length;
-
   const doneCount = useMemo(() => {
     if (!totalTasks) return 0;
     return tasks.reduce(
@@ -378,7 +346,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       0
     );
   }, [tasks, centerDone, totalTasks]);
-
   const progressPercent =
     totalTasks === 0 ? 0 : Math.round((doneCount / totalTasks) * 100);
 
@@ -475,76 +442,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }, TOUCH_LONGPRESS_DELAY_MS);
   };
 
-  /* ---------- FIX 1: Right-Click Pending + Suppress ---------- */
-  const pendingCtx = useRef<PendingCtx | null>(null);
-  const suppressNativeCtx = useRef(false);
-
-  const suppressNativeCtxOnce = () => {
-    suppressNativeCtx.current = true;
-    window.setTimeout(() => {
-      suppressNativeCtx.current = false;
-    }, SUPPRESS_NATIVE_CTX_MS);
-  };
-
-  const beginPendingNodeCtx = (
-    e: React.PointerEvent,
-    nodeId: string,
-    allowDrag: boolean,
-    blockPan: boolean
-  ) => {
-    if (!active) return;
-    if (removeMode) return;
-
-    // Für root/child blocken wir Pan, für Center NICHT (Center darf weiter das Map-Pan bedienen)
-    if (blockPan) {
-      e.stopPropagation();
-      e.preventDefault();
-      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    } else {
-      // nicht stoppen, sonst verliert Center sein "drag moves whole project"
-      e.preventDefault();
-    }
-
-    pendingCtx.current = {
-      kind: "node",
-      nodeId,
-      pointerId: e.pointerId,
-      startClient: { x: e.clientX, y: e.clientY },
-      lastClient: { x: e.clientX, y: e.clientY },
-      allowDrag,
-      startOffset: getOffset(nodeId),
-      dragStarted: false,
-      blockPan,
-    };
-
-    // verhindert doppeltes Öffnen, falls Safari doch onContextMenu feuert
-    suppressNativeCtxOnce();
-  };
-
-  const beginPendingEdgeCtx = (
-    e: React.PointerEvent,
-    parentId: string,
-    childId: string
-  ) => {
-    if (!active) return;
-    if (removeMode) return;
-
-    e.stopPropagation();
-    e.preventDefault();
-    (e.currentTarget as any).setPointerCapture?.(e.pointerId);
-
-    pendingCtx.current = {
-      kind: "edge",
-      parentId,
-      childId,
-      pointerId: e.pointerId,
-      startClient: { x: e.clientX, y: e.clientY },
-      lastClient: { x: e.clientX, y: e.clientY },
-    };
-
-    suppressNativeCtxOnce();
-  };
-
   /* ---------- Node-Drag (Desktop / Maus + Touch) ---------- */
   const vDrag = useRef<{
     id: string;
@@ -555,9 +452,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   function startNodeDrag(id: string, e: React.PointerEvent) {
     if (removeMode) return;
+
+    // ✅ FIX (macOS): Drag nur bei Linksklick (button=0) und ohne Ctrl/Meta,
+    // damit Ctrl+Click / Rechtsklick das ContextMenu nicht blockiert.
+    if (e.pointerType !== "touch") {
+      if (typeof (e as any).button === "number" && (e as any).button !== 0) return;
+      if (e.ctrlKey || e.metaKey) return;
+    }
+
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
     vDrag.current = {
       id,
       startClient: { x: e.clientX, y: e.clientY },
@@ -568,7 +474,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }
 
   function onNodePointerMove(e: PointerEvent) {
-    // Long-press cancel wenn Touch bewegt
     if (
       e.pointerType === "touch" &&
       touchLongPressTimer.current !== null &&
@@ -582,66 +487,18 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       }
     }
 
-    // FIX 1: pending right-click bewegen
-    const pc = pendingCtx.current;
-    if (pc && (e as any).pointerId === pc.pointerId) {
-      pc.lastClient = { x: e.clientX, y: e.clientY };
-
-      if (pc.kind === "node" && pc.allowDrag && !pc.dragStarted) {
-        const dx = pc.lastClient.x - pc.startClient.x;
-        const dy = pc.lastClient.y - pc.startClient.y;
-        if (Math.hypot(dx, dy) >= RIGHTCLICK_DRAG_THRESHOLD_PX) {
-          // Start right-drag = normale Node-Drag-Logik (ohne onContextMenu)
-          vDrag.current = {
-            id: pc.nodeId,
-            startClient: { ...pc.startClient },
-            startOffset: { ...pc.startOffset },
-          };
-          pc.dragStarted = true;
-          nodeDragging.current = true;
-          document.documentElement.classList.add("dragging-global");
-        }
-      }
-    }
-
     const d = vDrag.current;
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
     const dy = e.clientY - d.startClient.y;
     setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
-
-  function onNodePointerUp(e: PointerEvent) {
-    // FIX 1: pending right-click => wenn kein drag => Menü öffnen
-    const pc = pendingCtx.current;
-    if (pc && (e as any).pointerId === pc.pointerId) {
-      const dx = pc.lastClient.x - pc.startClient.x;
-      const dy = pc.lastClient.y - pc.startClient.y;
-      const dist = Math.hypot(dx, dy);
-
-      if (pc.kind === "node") {
-        if (!pc.dragStarted && dist < RIGHTCLICK_DRAG_THRESHOLD_PX) {
-          openColorMenuForNode(pc.lastClient.x, pc.lastClient.y, pc.nodeId);
-        }
-      } else {
-        if (dist < RIGHTCLICK_DRAG_THRESHOLD_PX) {
-          openColorMenuForEdge(
-            pc.lastClient.x,
-            pc.lastClient.y,
-            pc.parentId,
-            pc.childId
-          );
-        }
-      }
-      pendingCtx.current = null;
-    }
-
+  function onNodePointerUp() {
     if (!vDrag.current) return;
     vDrag.current = null;
     nodeDragging.current = false;
     document.documentElement.classList.remove("dragging-global");
   }
-
   useEffect(() => {
     window.addEventListener("pointermove", onNodePointerMove);
     window.addEventListener("pointerup", onNodePointerUp);
@@ -704,6 +561,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
 
     if (nodeDragging.current) return;
+
+    // ✅ FIX (macOS): Pan NICHT starten bei Rechtsklick oder Ctrl/Meta-Click,
+    // sonst wird das ContextMenu-Event häufig unterdrückt.
+    if (e.pointerType !== "touch") {
+      if (typeof (e as any).button === "number" && (e as any).button !== 0) return;
+      if (e.ctrlKey || e.metaKey) return;
+    }
 
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -1081,10 +945,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     e.preventDefault();
     e.stopPropagation();
     if (removeMode) return;
-
-    // FIX 1: verhindert doppelte Trigger (Windows + fallback / Safari)
-    if (suppressNativeCtx.current) return;
-
     openColorMenuForNode(e.clientX, e.clientY, id);
   };
 
@@ -1096,10 +956,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     e.preventDefault();
     e.stopPropagation();
     if (removeMode) return;
-
-    // FIX 1: verhindert doppelte Trigger
-    if (suppressNativeCtx.current) return;
-
     openColorMenuForEdge(e.clientX, e.clientY, parentId, childId);
   };
 
@@ -1233,19 +1089,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           style={{ pointerEvents: "stroke" }}
           onContextMenu={(e) => onEdgeContextMenu(e, parentId, childId)}
           onPointerDown={(e) => {
-            // Touch: Longpress
             if (e.pointerType === "touch") {
               if (removeMode) return;
               e.stopPropagation();
               e.preventDefault();
               startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
-              return;
-            }
-
-            // FIX 1: macOS Right-Click fallback (Edge)
-            if (isContextClick(e)) {
-              beginPendingEdgeCtx(e, parentId, childId);
-              return;
             }
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1310,15 +1158,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          edgeBaseColor,
-          px,
-          py
-        )
+        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
       );
     });
 
@@ -1388,8 +1228,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               onToggleRemoveTarget(kid.id);
               return;
             }
-
-            // Touch: Drag + Longpress
             if (e.pointerType === "touch") {
               e.stopPropagation();
               e.preventDefault();
@@ -1397,14 +1235,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
               return;
             }
-
-            // FIX 1: macOS Right-Click fallback (Child Node) + Right-Drag
-            if (isContextClick(e)) {
-              beginPendingNodeCtx(e, kid.id, true, true);
-              return;
-            }
-
-            // normal left drag
             startNodeDrag(kid.id, e);
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1542,17 +1372,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           color: lineColor,
         });
 
-        addChildRec(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          px,
-          py,
-          rootBubbleColor,
-          edgeBaseColor,
-          isDone
-        );
+        addChildRec(kid.id, cx, cy, R_CHILD, px, py, rootBubbleColor, edgeBaseColor, isDone);
       });
     };
 
@@ -1572,8 +1392,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const rootTask = getTask(root.id);
       const explicitRootDone =
         typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-      const rootDone =
-        explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
+      const rootDone = explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
 
       const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
 
@@ -1602,17 +1421,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       });
 
       // Children edges + nodes
-      addChildRec(
-        root.id,
-        rx,
-        ry,
-        R_ROOT,
-        0,
-        0,
-        baseBubbleColor,
-        baseEdgeColor,
-        rootDone
-      );
+      addChildRec(root.id, rx, ry, R_ROOT, 0, 0, baseBubbleColor, baseEdgeColor, rootDone);
     });
 
     // Bounds (nur Nodes reichen – Edges liegen innerhalb)
@@ -1721,9 +1530,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         compress: true,
       });
 
-      // Bild wird (hochaufgelöst) in die kleinere Seite skaliert => mehr "DPI" => sichtbar schärfer
       pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
-
       pdf.save(buildImageFileName(projectTitle, "pdf"));
     } catch {
       window.alert(
@@ -1763,10 +1570,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         onPointerUp={onPointerUpMap}
         onPointerCancel={onPointerUpMap}
         onWheel={onWheel}
-        // optional: Browser-Menu auf Background blocken
-        onContextMenu={(e) => {
-          e.preventDefault();
-        }}
       >
         <div
           className="map-pan"
@@ -1843,24 +1646,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 e.preventDefault();
                 e.stopPropagation();
                 if (removeMode) return;
-                if (suppressNativeCtx.current) return;
                 openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
               }}
               onPointerDown={(e) => {
                 if (removeMode) return;
-
                 if (e.pointerType === "touch") {
                   e.preventDefault();
                   skipClearLongPressOnNextPointerDown.current = true;
                   startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
-                  return;
-                }
-
-                // FIX 1: Center Right-Click fallback
-                // blockPan=false => Center kann weiterhin "drag moves whole project"
-                if (isContextClick(e)) {
-                  beginPendingNodeCtx(e, CENTER_ID, false, false);
-                  return;
                 }
               }}
               onPointerUp={() => clearTouchLongPress()}
@@ -1920,7 +1713,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                         onToggleRemoveTarget(root.id);
                         return;
                       }
-
                       if (e.pointerType === "touch") {
                         e.stopPropagation();
                         e.preventDefault();
@@ -1928,13 +1720,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                         startTouchLongPressForNode(root.id, e.clientX, e.clientY);
                         return;
                       }
-
-                      // FIX 1: macOS Right-Click fallback (Root Node) + Right-Drag
-                      if (isContextClick(e)) {
-                        beginPendingNodeCtx(e, root.id, true, true);
-                        return;
-                      }
-
                       startNodeDrag(root.id, e);
                     }}
                     onPointerUp={() => clearTouchLongPress()}
@@ -2182,9 +1967,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             height: exportLayout.height,
             background: "#ffffff",
             overflow: "hidden",
-
-            // wichtig: NICHT offscreen verschieben (sonst weißer Export)
-            // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
             opacity: 0,
             pointerEvents: "none",
           }}
