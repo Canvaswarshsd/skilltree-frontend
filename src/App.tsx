@@ -514,11 +514,7 @@ export default function App() {
           </button>
 
           <div className="save-wrap">
-            <button
-              ref={saveBtnRef}
-              className="btn btn-save"
-              onClick={toggleSaveMenu}
-            >
+            <button ref={saveBtnRef} className="btn btn-save" onClick={toggleSaveMenu}>
               Save
             </button>
             {saveOpen && savePos && (
@@ -553,11 +549,7 @@ export default function App() {
           </button>
 
           <div className="save-wrap">
-            <button
-              ref={downloadBtnRef}
-              className="view-btn"
-              onClick={toggleDownloadMenu}
-            >
+            <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>
               Download
             </button>
             {downloadOpen && downloadPos && (
@@ -571,16 +563,10 @@ export default function App() {
                 }}
                 onMouseLeave={() => setDownloadOpen(false)}
               >
-                <button
-                  className="save-item"
-                  onClick={() => mapRef.current?.exportPDF()}
-                >
+                <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
                   PDF
                 </button>
-                <button
-                  className="save-item"
-                  onClick={() => mapRef.current?.exportPNG()}
-                >
+                <button className="save-item" onClick={() => mapRef.current?.exportPNG()}>
                   PNG
                 </button>
               </div>
@@ -600,7 +586,30 @@ export default function App() {
       )}
 
       <div className="body">
-        {/* Edit view */}
+        {/* MapView bleibt IMMER gemountet (Export funktioniert auch im Edit) */}
+        <div className={"map-host" + (view === "map" ? "" : " map-host-hidden")}>
+          <MapView
+            ref={mapRef}
+            active={view === "map"}
+            projectTitle={projectTitle}
+            tasks={tasks}
+            setTasks={setTasks}
+            nodeOffset={nodeOffset}
+            setNodeOffset={setNodeOffset}
+            pan={pan}
+            setPan={setPan}
+            scale={scale}
+            setScale={setScale}
+            branchColorOverride={branchColorOverride}
+            setBranchColorOverride={setBranchColorOverride}
+            centerColor={centerColor}
+            setCenterColor={setCenterColor}
+            removeMode={removeMode}
+            removeSelection={removeTargets}
+            onToggleRemoveTarget={toggleRemoveTarget}
+          />
+        </div>
+
         {view === "edit" && (
           <div className="task-list">
             <h2 className="section-title" />
@@ -624,31 +633,6 @@ export default function App() {
             ))}
           </div>
         )}
-
-        {/* MapView is ALWAYS mounted (for real export), but moved offscreen while in Edit */}
-        <div className={view === "map" ? "map-host" : "map-host map-host-hidden"}>
-          <MapView
-            ref={mapRef}
-            active={view === "map"}
-            projectTitle={projectTitle}
-            tasks={tasks}
-            setTasks={setTasks}
-            nodeOffset={nodeOffset}
-            setNodeOffset={setNodeOffset}
-            pan={pan}
-            setPan={setPan}
-            scale={scale}
-            setScale={setScale}
-            branchColorOverride={branchColorOverride}
-            setBranchColorOverride={setBranchColorOverride}
-            centerColor={centerColor}
-            setCenterColor={setCenterColor}
-            // Remove-Modus für Visualize
-            removeMode={removeMode}
-            removeSelection={removeTargets}
-            onToggleRemoveTarget={toggleRemoveTarget}
-          />
-        </div>
       </div>
 
       <Analytics />
@@ -768,10 +752,7 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span
-          className="drag-handle left"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -791,10 +772,7 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label">child</span>}
-        <span
-          className="drag-handle right"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
       {children.map((c) => (

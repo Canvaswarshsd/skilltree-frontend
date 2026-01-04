@@ -1461,6 +1461,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         pixelRatio,
         cacheBust: true,
         useCORS: true,
+		style: { opacity: "1" },
       });
 
       if (!dataUrl || !dataUrl.startsWith("data:image/")) {

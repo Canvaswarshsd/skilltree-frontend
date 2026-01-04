@@ -564,7 +564,7 @@ html, body { overflow: hidden; }
 
 
 
-/* ===== MapView Host (MapView bleibt gemountet für Export) ===== */
+/* ===== MapView Host (required for Export in Edit) ===== */
 .map-host{
   flex: 1;
   min-width: 0;
@@ -572,14 +572,18 @@ html, body { overflow: hidden; }
   position: relative;
 }
 
-/* Map im Edit-Modus offscreen halten, aber NICHT display:none (sonst weißer Export) */
+/* Offscreen im Edit-Modus, aber NICHT unsichtbar (sonst weißer Export) */
 .map-host-hidden{
-  position: fixed;
-  left: -200vw;
-  top: 0;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
-  opacity: 0;
-}
+  position: fixed !important;
+  left: -200vw !important;
+  top: 56px !important;
+  width: 100vw !important;
+  height: calc(100vh - 56px) !important;
 
+  pointer-events: none !important;
+
+  /* entscheidend: niemals 0/hidden/none, sonst rastert html-to-image leer */
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+}
