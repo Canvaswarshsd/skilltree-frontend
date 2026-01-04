@@ -542,43 +542,32 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }
 
   const onPointerDownMap = (e: React.PointerEvent) => {
-  if (!active) return;
+    if (!active) return;
 
-  // ✅ macOS Fix: Right-Click (button=2) und Ctrl/Meta-Click dürfen NICHT
-  // durch preventDefault + PointerCapture "geschluckt" werden, sonst feuert
-  // onContextMenu nicht zuverlässig.
-  if (e.pointerType === "mouse") {
-    const wantsContextMenu =
-      e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
-    if (wantsContextMenu) return;
-  }
+    if (skipClearLongPressOnNextPointerDown.current) {
+      skipClearLongPressOnNextPointerDown.current = false;
+    } else {
+      clearTouchLongPress();
+    }
 
-  if (skipClearLongPressOnNextPointerDown.current) {
-    skipClearLongPressOnNextPointerDown.current = false;
-  } else {
-    clearTouchLongPress();
-  }
+    if (nodeDragging.current) return;
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  if (nodeDragging.current) return;
+    if (activePointers.current.size === 2) {
+      const [p1, p2] = Array.from(activePointers.current.values());
+      const dist = distance(p1, p2);
+      const m = midpoint(p1, p2);
+      pinching.current = true;
+      pinchStart.current = { dist, cx: m.x, cy: m.y, startScale: scale };
+      panning.current = false;
+    } else if (activePointers.current.size === 1) {
+      panning.current = true;
+      last.current = { x: e.clientX, y: e.clientY };
+    }
 
-  activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-  if (activePointers.current.size === 2) {
-    const [p1, p2] = Array.from(activePointers.current.values());
-    const dist = distance(p1, p2);
-    const m = midpoint(p1, p2);
-    pinching.current = true;
-    pinchStart.current = { dist, cx: m.x, cy: m.y, startScale: scale };
-    panning.current = false;
-  } else if (activePointers.current.size === 1) {
-    panning.current = true;
-    last.current = { x: e.clientX, y: e.clientY };
-  }
-
-  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  e.preventDefault();
-};
-
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
 
   const onPointerMoveMap = (e: React.PointerEvent) => {
     if (!active) return;
