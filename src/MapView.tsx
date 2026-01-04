@@ -157,6 +157,47 @@ const EXPORT_SHADOW_PAD_BOTTOM = 48;
 
 const EXPORT_MAX_PIXELS_ON_LONG_SIDE = 12000; // dynamische pixelRatio-Bremse
 
+/* ---------- Browser helpers ---------- */
+function isSafariBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isWebKit = /AppleWebKit/i.test(ua);
+  const isNotChromium =
+    !/Chrome|CriOS|Edg|OPR|Brave|Vivaldi/i.test(ua) && !/FxiOS|Firefox/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && isNotChromium && isWebKit;
+  return isSafari;
+}
+
+/* ---------- Download helpers ---------- */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(",");
+  const meta = parts[0] || "";
+  const b64 = parts[1] || "";
+
+  const mimeMatch = meta.match(/data:([^;]+);base64/i);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+  return new Blob([bytes], { type: mime });
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
 /* ---------- Geometrie ---------- */
 function segmentBetweenCircles(
   c1x: number,
@@ -230,8 +271,7 @@ function splitTitleLines(
 }
 
 /* Edge-Key für einzelne Verbindungsstriche */
-const edgeKey = (parentId: string, childId: string) =>
-  `${parentId}__${childId}`;
+const edgeKey = (parentId: string, childId: string) => `${parentId}__${childId}`;
 
 /* ID-Helfer für Attachments */
 function makeId() {
@@ -313,10 +353,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   >({});
 
   /* ----- Helper ----- */
-  const roots = useMemo(
-    () => tasks.filter((t) => t.parentId === null),
-    [tasks]
-  );
+  const roots = useMemo(() => tasks.filter((t) => t.parentId === null), [tasks]);
   const childrenOf = (id: string) => tasks.filter((t) => t.parentId === id);
   const getTask = (id: string) => tasks.find((t) => t.id === id);
   const getOffset = (id: string) => nodeOffset[id] || { x: 0, y: 0 };
@@ -1075,7 +1112,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               if (removeMode) return;
               e.stopPropagation();
               e.preventDefault();
-              startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
+              startTouchLongPressForEdge(
+                parentId,
+                childId,
+                e.clientX,
+                e.clientY
+              );
             }
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1140,7 +1182,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
+        ...renderChildLinesWithOffsets(
+          kid.id,
+          cx,
+          cy,
+          R_CHILD,
+          edgeBaseColor,
+          px,
+          py
+        )
       );
     });
 
@@ -1323,7 +1373,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
         const t = getTask(kid.id);
         const explicitDone = typeof t?.done === "boolean" ? t.done : undefined;
-        const isDone = explicitDone !== undefined ? explicitDone : inheritedDone;
+        const isDone =
+          explicitDone !== undefined ? explicitDone : inheritedDone;
 
         const bubbleColor = t?.color ?? rootBubbleColor;
         const isSelectedForRemove = removeMode && removeSelection.has(kid.id);
@@ -1354,7 +1405,17 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           color: lineColor,
         });
 
-        addChildRec(kid.id, cx, cy, R_CHILD, px, py, rootBubbleColor, edgeBaseColor, isDone);
+        addChildRec(
+          kid.id,
+          cx,
+          cy,
+          R_CHILD,
+          px,
+          py,
+          rootBubbleColor,
+          edgeBaseColor,
+          isDone
+        );
       });
     };
 
@@ -1368,13 +1429,16 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       const ry = ryBase + ro.y;
 
       const baseBubbleColor =
-        branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
-      const baseEdgeColor = branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+        branchColorOverride[root.id] ??
+        BRANCH_COLORS[i % BRANCH_COLORS.length];
+      const baseEdgeColor =
+        branchEdgeColorOverride[root.id] ?? baseBubbleColor;
 
       const rootTask = getTask(root.id);
       const explicitRootDone =
         typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-      const rootDone = explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
+      const rootDone =
+        explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
 
       const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
 
@@ -1403,7 +1467,17 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       });
 
       // Children edges + nodes
-      addChildRec(root.id, rx, ry, R_ROOT, 0, 0, baseBubbleColor, baseEdgeColor, rootDone);
+      addChildRec(
+        root.id,
+        rx,
+        ry,
+        R_ROOT,
+        0,
+        0,
+        baseBubbleColor,
+        baseEdgeColor,
+        rootDone
+      );
     });
 
     // Bounds (nur Nodes reichen – Edges liegen innerhalb)
@@ -1438,93 +1512,459 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const dpr = window.devicePixelRatio || 1;
     const base = clamp(dpr * 2, 2, 4);
     const longSide = Math.max(w, h);
-    const maxRatioBySize = EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
+    const maxRatioBySize =
+      EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
     return clamp(Math.min(base, maxRatioBySize), 1, 4);
   };
 
-type ExportCapture = {
-  dataUrl: string;
-  layout: ExportLayout;
-  pixelRatio: number;
-};
+  type ExportCapture = {
+    dataUrl: string;
+    layout: ExportLayout;
+    pixelRatio: number;
+  };
 
-const captureExport = async (): Promise<ExportCapture> => {
-  if (exportBusy.current) throw new Error("Export already in progress");
-  exportBusy.current = true;
+  /* ---------- Export (DOM capture) - unverändert für Chrome/Firefox ---------- */
+  const captureExportDOM = async (): Promise<ExportCapture> => {
+    if (exportBusy.current) throw new Error("Export already in progress");
+    exportBusy.current = true;
 
-  try {
-    const layout = computeExportLayout();
-    setExportLayout(layout);
-    await wait2Frames();
+    try {
+      const layout = computeExportLayout();
+      setExportLayout(layout);
+      await wait2Frames();
 
-    const el = exportRootRef.current;
-    if (!el) throw new Error("Export root not mounted");
+      const el = exportRootRef.current;
+      if (!el) throw new Error("Export root not mounted");
 
-    const pixelRatio = pickPixelRatio(layout.width, layout.height);
+      const pixelRatio = pickPixelRatio(layout.width, layout.height);
 
-    const dataUrl = await htmlToImage.toPng(el, {
-      backgroundColor: "#ffffff",
-      pixelRatio,
-      cacheBust: true,
-      useCORS: true,
-      style: { opacity: "1" },
-    });
+      const dataUrl = await htmlToImage.toPng(el, {
+        backgroundColor: "#ffffff",
+        pixelRatio,
+        cacheBust: true,
+        useCORS: true,
+        style: { opacity: "1" },
+      });
 
-    if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-      throw new Error("Invalid PNG data generated");
+      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+        throw new Error("Invalid PNG data generated");
+      }
+
+      return { dataUrl, layout, pixelRatio };
+    } finally {
+      setExportLayout(null);
+      exportBusy.current = false;
+    }
+  };
+
+  /* ---------- Export (Safari Fix): Canvas Renderer (kein html-to-image) ---------- */
+  type CanvasTextStyle = {
+    fontStyle: string;
+    fontWeight: string;
+    fontSizePx: number;
+    fontFamily: string;
+    color: string;
+    lineHeightPx: number;
+    letterSpacingPx: number;
+  };
+
+  type CanvasShadow = {
+    color: string;
+    offsetX: number;
+    offsetY: number;
+    blur: number;
+    spread: number;
+  };
+
+  const parsePx = (v: string) => {
+    const n = parseFloat(v || "");
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const parseLetterSpacing = (v: string) => {
+    if (!v || v === "normal") return 0;
+    if (v.endsWith("px")) return parsePx(v);
+    return 0;
+  };
+
+  const readBoxShadow = (el: HTMLElement | null): CanvasShadow => {
+    const fallback: CanvasShadow = {
+      color: "rgba(0,0,0,0.18)",
+      offsetX: 0,
+      offsetY: 12,
+      blur: 36,
+      spread: 0,
+    };
+    if (!el) return fallback;
+    const cs = getComputedStyle(el);
+    const bs = cs.boxShadow || "";
+    if (!bs || bs === "none") return fallback;
+
+    const first = (() => {
+      // take first shadow in case multiple are defined
+      let depth = 0;
+      let acc = "";
+      for (let i = 0; i < bs.length; i++) {
+        const ch = bs[i];
+        if (ch === "(") depth++;
+        if (ch === ")") depth = Math.max(0, depth - 1);
+        if (ch === "," && depth === 0) break;
+        acc += ch;
+      }
+      return acc.trim();
+    })();
+
+    const colorMatch =
+      first.match(/rgba?\([^)]+\)/i) || first.match(/#[0-9a-f]{3,8}/i);
+    const color = colorMatch ? colorMatch[0] : fallback.color;
+
+    const nums = [...first.matchAll(/(-?\d+(?:\.\d+)?)px/g)].map((m) =>
+      parseFloat(m[1])
+    );
+    const offsetX = nums[0] ?? fallback.offsetX;
+    const offsetY = nums[1] ?? fallback.offsetY;
+    const blur = nums[2] ?? fallback.blur;
+    const spread = nums[3] ?? fallback.spread;
+
+    return { color, offsetX, offsetY, blur, spread };
+  };
+
+  const readTextStyleFromNode = (
+    selector: string,
+    fallback?: Partial<CanvasTextStyle>
+  ): CanvasTextStyle => {
+    const wrap = wrapperRef.current;
+    const el = wrap?.querySelector(selector) as HTMLElement | null;
+    const span = el?.querySelector("span") as HTMLElement | null;
+
+    const cs = el ? getComputedStyle(el) : null;
+    const ss = span ? getComputedStyle(span) : null;
+
+    const fontSizePx = cs ? parsePx(cs.fontSize) : fallback?.fontSizePx ?? 14;
+    const fontFamily = cs?.fontFamily || fallback?.fontFamily || "system-ui";
+    const fontWeight = cs?.fontWeight || fallback?.fontWeight || "600";
+    const fontStyle = cs?.fontStyle || fallback?.fontStyle || "normal";
+    const color = cs?.color || fallback?.color || "#ffffff";
+    const letterSpacingPx = cs
+      ? parseLetterSpacing(cs.letterSpacing)
+      : fallback?.letterSpacingPx ?? 0;
+
+    // DOM spans use lineHeight: 1.1 (unitless). We mirror that by default.
+    const lineHeightPx = (() => {
+      const lh = ss?.lineHeight || cs?.lineHeight || "";
+      if (lh && lh !== "normal" && lh.endsWith("px")) return parsePx(lh);
+      return (fallback?.lineHeightPx ?? fontSizePx * 1.1) || fontSizePx * 1.1;
+    })();
+
+    return {
+      fontStyle,
+      fontWeight,
+      fontSizePx,
+      fontFamily,
+      color,
+      lineHeightPx,
+      letterSpacingPx,
+    };
+  };
+
+  const ensureFontsReady = async () => {
+    try {
+      // @ts-ignore
+      if (document.fonts && document.fonts.ready) {
+        // @ts-ignore
+        await document.fonts.ready;
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const drawTextCentered = (
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    cx: number,
+    y: number,
+    style: CanvasTextStyle
+  ) => {
+    if (!style.letterSpacingPx) {
+      ctx.fillText(text, cx, y);
+      return;
     }
 
-    return { dataUrl, layout, pixelRatio };
-  } finally {
-    setExportLayout(null);
-    exportBusy.current = false;
-  }
-};
+    // letterSpacing emulation (centered)
+    const chars = Array.from(text);
+    const widths = chars.map((ch) => ctx.measureText(ch).width);
+    const totalWidth =
+      widths.reduce((a, b) => a + b, 0) + style.letterSpacingPx * Math.max(0, chars.length - 1);
 
+    let x = cx - totalWidth / 2;
+    ctx.textAlign = "left";
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      ctx.fillText(ch, x, y);
+      x += widths[i] + style.letterSpacingPx;
+    }
+    ctx.textAlign = "center";
+  };
 
- const doDownloadPNG = async () => {
-  try {
-    const { dataUrl } = await captureExport();
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = buildImageFileName(projectTitle, "png");
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch {
-    window.alert(
-      "Export as PNG failed. Please try again and check the console for details."
-    );
-  }
-};
+  const drawDoneBadge = (
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    r: number,
+    fontFamily: string
+  ) => {
+    const badgeR = Math.max(10, Math.round(r * 0.22));
+    const bx = cx + r - badgeR * 0.9;
+    const by = cy - r + badgeR * 0.9;
 
+    ctx.save();
+    ctx.shadowColor = "transparent";
+    ctx.fillStyle = "#22c55e";
+    ctx.beginPath();
+    ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `700 ${Math.max(10, Math.round(badgeR * 1.25))}px ${fontFamily}`;
+    ctx.fillText("✓", bx, by + 0.5);
+    ctx.restore();
+  };
+
+  const drawRemoveBadge = (
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    r: number,
+    selected: boolean,
+    fontFamily: string
+  ) => {
+    const badgeR = Math.max(10, Math.round(r * 0.22));
+    const bx = cx - r + badgeR * 0.9;
+    const by = cy - r + badgeR * 0.9;
+
+    ctx.save();
+    ctx.shadowColor = "transparent";
+
+    if (selected) {
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `800 ${Math.max(10, Math.round(badgeR * 1.2))}px ${fontFamily}`;
+      ctx.fillText("✕", bx, by + 0.5);
+    } else {
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  };
+
+  const captureExportCanvasSafari = async (): Promise<ExportCapture> => {
+    if (exportBusy.current) throw new Error("Export already in progress");
+    exportBusy.current = true;
+
+    try {
+      await ensureFontsReady();
+
+      const layout = computeExportLayout();
+      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.ceil(layout.width * pixelRatio));
+      canvas.height = Math.max(1, Math.ceil(layout.height * pixelRatio));
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas not supported");
+
+      // scale for high-res
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+      // background
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, layout.width, layout.height);
+
+      // sample styles from live DOM (so text sizing matches your CSS)
+      const centerStyle = readTextStyleFromNode(".skill-node.center-node");
+      const rootStyle = readTextStyleFromNode(".skill-node.root-node", centerStyle);
+      const childStyle = readTextStyleFromNode(".skill-node.child-node", rootStyle);
+
+      const shadowSampleEl =
+        (wrapperRef.current?.querySelector(".skill-node.center-node") as HTMLElement | null) ||
+        null;
+      const shadow = readBoxShadow(shadowSampleEl);
+
+      // edges first
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineWidth = 3;
+      for (const e of layout.edges) {
+        ctx.strokeStyle = e.color;
+        ctx.beginPath();
+        ctx.moveTo(layout.originX + e.x1, layout.originY + e.y1);
+        ctx.lineTo(layout.originX + e.x2, layout.originY + e.y2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // nodes
+      for (const n of layout.nodes) {
+        const cx = layout.originX + n.x;
+        const cy = layout.originY + n.y;
+
+        const styleForNode =
+          n.kind === "center" ? centerStyle : n.kind === "root" ? rootStyle : childStyle;
+
+        // shadow + circle
+        ctx.save();
+        ctx.shadowColor = shadow.color;
+        ctx.shadowBlur = shadow.blur;
+        ctx.shadowOffsetX = shadow.offsetX;
+        ctx.shadowOffsetY = shadow.offsetY;
+
+        const shadowR = n.r + (shadow.spread || 0);
+        ctx.fillStyle = n.bubbleColor;
+        ctx.beginPath();
+        ctx.arc(cx, cy, shadowR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // fill again without shadow (crisp edge)
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle = n.bubbleColor;
+        ctx.beginPath();
+        ctx.arc(cx, cy, n.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // done look: leichte Entsättigung/Overlay (CSS ist datenbasiert; wir approximieren stabil)
+        if (n.done) {
+          ctx.globalAlpha = 0.28;
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(cx, cy, n.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
+        // badges
+        if (removeMode) {
+          drawRemoveBadge(
+            ctx,
+            cx,
+            cy,
+            n.r,
+            !!n.removeSelected,
+            styleForNode.fontFamily
+          );
+        }
+        if (n.done) {
+          drawDoneBadge(ctx, cx, cy, n.r, styleForNode.fontFamily);
+        }
+
+        // text
+        ctx.fillStyle = styleForNode.color;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `${styleForNode.fontStyle} ${styleForNode.fontWeight} ${styleForNode.fontSizePx}px ${styleForNode.fontFamily}`;
+
+        const maxLen = n.kind === "center" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
+        const lines = splitTitleLines(n.title, maxLen, 3);
+
+        const lh = styleForNode.lineHeightPx || styleForNode.fontSizePx * 1.1;
+        const startY = cy - ((lines.length - 1) * lh) / 2;
+
+        for (let i = 0; i < lines.length; i++) {
+          drawTextCentered(ctx, lines[i], cx, startY + i * lh, styleForNode);
+        }
+
+        ctx.restore();
+      }
+
+      const dataUrl = canvas.toDataURL("image/png");
+      if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+        throw new Error("Invalid PNG data generated");
+      }
+
+      return { dataUrl, layout, pixelRatio };
+    } finally {
+      exportBusy.current = false;
+    }
+  };
+
+  /* ---------- Export chooser (Safari fix only) ---------- */
+  const captureExport = async (): Promise<ExportCapture> => {
+    if (isSafariBrowser()) {
+      return await captureExportCanvasSafari();
+    }
+    return await captureExportDOM();
+  };
+
+  const doDownloadPNG = async () => {
+    try {
+      const { dataUrl } = await captureExport();
+
+      // Safari: besser via Blob (große dataURLs + download sind manchmal flaky)
+      if (isSafariBrowser()) {
+        const blob = dataUrlToBlob(dataUrl);
+        downloadBlob(buildImageFileName(projectTitle, "png"), blob);
+        return;
+      }
+
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = buildImageFileName(projectTitle, "png");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      window.alert(
+        "Export as PNG failed. Please try again and check the console for details."
+      );
+    }
+  };
 
   const doDownloadPDF = async () => {
-  try {
-    const { dataUrl, layout } = await captureExport();
+    try {
+      const { dataUrl, layout } = await captureExport();
 
-    // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
-    const pageW = layout.width;
-    const pageH = layout.height;
+      // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
+      const pageW = layout.width;
+      const pageH = layout.height;
 
-    const pdf = new jsPDF({
-      orientation: pageW >= pageH ? "landscape" : "portrait",
-      unit: "px",
-      format: [pageW, pageH],
-      compress: true,
-    });
+      const pdf = new jsPDF({
+        orientation: pageW >= pageH ? "landscape" : "portrait",
+        unit: "px",
+        format: [pageW, pageH],
+        compress: true,
+      });
 
-    // Bild wird (hochaufgelöst) in die kleinere Seite skaliert => mehr "DPI" => sichtbar schärfer
-    pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
+      pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
 
-    pdf.save(buildImageFileName(projectTitle, "pdf"));
-  } catch {
-    window.alert(
-      "Export as PDF failed. Please try again and check the console for details."
-    );
-  }
-};
+      // Safari: pdf.save ist manchmal flaky -> blob download
+      if (isSafariBrowser()) {
+        const blob = pdf.output("blob");
+        downloadBlob(buildImageFileName(projectTitle, "pdf"), blob);
+        return;
+      }
 
+      pdf.save(buildImageFileName(projectTitle, "pdf"));
+    } catch {
+      window.alert(
+        "Export as PDF failed. Please try again and check the console for details."
+      );
+    }
+  };
 
   /* ---------- Ref-API ---------- */
   const resetView = () => {
@@ -1543,9 +1983,7 @@ const captureExport = async (): Promise<ExportCapture> => {
   return (
     <>
       <div
-        className={
-          "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
-        }
+        className={"skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")}
         ref={wrapperRef}
         style={{
           touchAction: "none",
@@ -1840,12 +2278,22 @@ const captureExport = async (): Promise<ExportCapture> => {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
+                              openFileContextMenu(
+                                e.clientX,
+                                e.clientY,
+                                ctxMenu.nodeId!,
+                                att.id
+                              );
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
+                              openFileContextMenu(
+                                e.clientX,
+                                e.clientY,
+                                ctxMenu.nodeId!,
+                                att.id
+                              );
                             }}
                           >
                             <span className="ctxmenu-fileBullet">•</span>
@@ -1947,20 +2395,19 @@ const captureExport = async (): Promise<ExportCapture> => {
         <div
           ref={exportRootRef}
           style={{
-  position: "fixed",
-  left: 0,
-  top: 0,
-  width: exportLayout.width,
-  height: exportLayout.height,
-  background: "#ffffff",
-  overflow: "hidden",
+            position: "fixed",
+            left: 0,
+            top: 0,
+            width: exportLayout.width,
+            height: exportLayout.height,
+            background: "#ffffff",
+            overflow: "hidden",
 
-  // wichtig: NICHT offscreen verschieben (sonst weißer Export)
-  // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
-  opacity: 0,
-  pointerEvents: "none",
-}}
-
+            // wichtig: NICHT offscreen verschieben (sonst weißer Export)
+            // stattdessen "unsichtbar", aber html-to-image setzt beim Export opacity wieder auf 1
+            opacity: 0,
+            pointerEvents: "none",
+          }}
           aria-hidden="true"
         >
           {/* Edges */}
@@ -1987,7 +2434,6 @@ const captureExport = async (): Promise<ExportCapture> => {
           <div style={{ position: "absolute", inset: 0 }}>
             {exportLayout.nodes.map((n) => {
               const isCenter = n.kind === "center";
-              const isRoot = n.kind === "root";
               const isChild = n.kind === "child";
 
               const cls =
