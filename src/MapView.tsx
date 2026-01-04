@@ -542,32 +542,43 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   }
 
   const onPointerDownMap = (e: React.PointerEvent) => {
-    if (!active) return;
+  if (!active) return;
 
-    if (skipClearLongPressOnNextPointerDown.current) {
-      skipClearLongPressOnNextPointerDown.current = false;
-    } else {
-      clearTouchLongPress();
-    }
+  // ✅ macOS Fix: Right-Click (button=2) und Ctrl/Meta-Click dürfen NICHT
+  // durch preventDefault + PointerCapture "geschluckt" werden, sonst feuert
+  // onContextMenu nicht zuverlässig.
+  if (e.pointerType === "mouse") {
+    const wantsContextMenu =
+      e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
+    if (wantsContextMenu) return;
+  }
 
-    if (nodeDragging.current) return;
-    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (skipClearLongPressOnNextPointerDown.current) {
+    skipClearLongPressOnNextPointerDown.current = false;
+  } else {
+    clearTouchLongPress();
+  }
 
-    if (activePointers.current.size === 2) {
-      const [p1, p2] = Array.from(activePointers.current.values());
-      const dist = distance(p1, p2);
-      const m = midpoint(p1, p2);
-      pinching.current = true;
-      pinchStart.current = { dist, cx: m.x, cy: m.y, startScale: scale };
-      panning.current = false;
-    } else if (activePointers.current.size === 1) {
-      panning.current = true;
-      last.current = { x: e.clientX, y: e.clientY };
-    }
+  if (nodeDragging.current) return;
 
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    e.preventDefault();
-  };
+  activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (activePointers.current.size === 2) {
+    const [p1, p2] = Array.from(activePointers.current.values());
+    const dist = distance(p1, p2);
+    const m = midpoint(p1, p2);
+    pinching.current = true;
+    pinchStart.current = { dist, cx: m.x, cy: m.y, startScale: scale };
+    panning.current = false;
+  } else if (activePointers.current.size === 1) {
+    panning.current = true;
+    last.current = { x: e.clientX, y: e.clientY };
+  }
+
+  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  e.preventDefault();
+};
+
 
   const onPointerMoveMap = (e: React.PointerEvent) => {
     if (!active) return;
@@ -1204,19 +1215,31 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
           data-remove-mode={removeMode ? "true" : "false"}
           data-remove-selected={isSelectedForRemove ? "true" : "false"}
           onPointerDown={(e) => {
-            if (removeMode) {
-              e.stopPropagation();
-              e.preventDefault();
-              onToggleRemoveTarget(kid.id);
-              return;
-            }
-            if (e.pointerType === "touch") {
-              e.stopPropagation();
-              e.preventDefault();
-              startNodeDrag(kid.id, e);
-              startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
-              return;
-            }
+  // ✅ macOS: Right-Click / Ctrl-Click soll Menü öffnen, nicht Drag starten
+  if (e.pointerType === "mouse") {
+    const wantsContextMenu =
+      e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
+    if (wantsContextMenu) return;
+  }
+
+  if (removeMode) {
+    e.stopPropagation();
+    e.preventDefault();
+    onToggleRemoveTarget(kid.id);
+    return;
+  }
+
+  if (e.pointerType === "touch") {
+    e.stopPropagation();
+    e.preventDefault();
+    startNodeDrag(kid.id, e);
+    startTouchLongPressForNode(kid.id, e.clientX, e.clientY);
+    return;
+  }
+
+  startNodeDrag(kid.id, e);
+}}
+
             startNodeDrag(kid.id, e);
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1693,20 +1716,32 @@ const captureExport = async (): Promise<ExportCapture> => {
                     data-done={rootDone ? "true" : "false"}
                     data-remove-mode={removeMode ? "true" : "false"}
                     data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
-                    onPointerDown={(e) => {
-                      if (removeMode) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        onToggleRemoveTarget(root.id);
-                        return;
-                      }
-                      if (e.pointerType === "touch") {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        startNodeDrag(root.id, e);
-                        startTouchLongPressForNode(root.id, e.clientX, e.clientY);
-                        return;
-                      }
+                   onPointerDown={(e) => {
+  // ✅ macOS: Right-Click / Ctrl-Click soll Menü öffnen, nicht Drag starten
+  if (e.pointerType === "mouse") {
+    const wantsContextMenu =
+      e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
+    if (wantsContextMenu) return;
+  }
+
+  if (removeMode) {
+    e.stopPropagation();
+    e.preventDefault();
+    onToggleRemoveTarget(root.id);
+    return;
+  }
+
+  if (e.pointerType === "touch") {
+    e.stopPropagation();
+    e.preventDefault();
+    startNodeDrag(root.id, e);
+    startTouchLongPressForNode(root.id, e.clientX, e.clientY);
+    return;
+  }
+
+  startNodeDrag(root.id, e);
+}}
+
                       startNodeDrag(root.id, e);
                     }}
                     onPointerUp={() => clearTouchLongPress()}
