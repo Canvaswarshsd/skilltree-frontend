@@ -9,14 +9,12 @@
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- CHANGE 1 (SEO): better title + description -->
     <title>OpenTaskMap | Visualize Tasks as a Zoomable Task Map</title>
     <meta
       name="description"
       content="Add tasks in Edit, drag & drop to nest subtasks, then hit Visualize to turn your list into a zoomable task map for project planning."
     />
 
-    <!-- Kleines Inline-CSS nur für das Intro-Overlay -->
     <style>
       /* Vollflächige Ebene über der App – nur solange sichtbar, bis der User das erste Mal interagiert */
       #intro-overlay {
@@ -33,8 +31,7 @@
         justify-content: center;
         gap: 40px;
 
-        /* Base: unverändert, aber mit etwas mehr Bottom-Reserve (tiny) */
-        padding: 80px 40px 40px;  /* vorher: 80px 40px 32px */
+        padding: 80px 40px 40px;
 
         box-sizing: border-box;
         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -53,7 +50,7 @@
         justify-items: center;
       }
 
-      /* === NEU: Hero-Text über den zwei Cards === */
+      /* === Hero-Text über den zwei Cards === */
       .intro-hero {
         grid-column: 1 / -1; /* über beide Spalten */
         width: 100%;
@@ -68,7 +65,6 @@
         letter-spacing: -0.02em;
         color: #0f172a;
 
-        /* skaliert mit Viewport, bleibt aber im Rahmen */
         font-size: clamp(1.35rem, 1.05rem + 1.2vw, 2.35rem);
         line-height: 1.08;
       }
@@ -93,13 +89,12 @@
       }
 
       .intro-card img {
-        /* FIX: NICHT mehr auf 100% Breite zwingen (verursacht die weißen Streifen) */
         display: block;
         width: auto;
         max-width: 100%;
         height: auto;
 
-        max-height: 420px;           /* Standard */
+        max-height: 420px; /* Standard */
         border-radius: 12px;
         box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
         object-fit: contain;
@@ -133,10 +128,9 @@
         transition: opacity 0.25s ease-out;
       }
 
-      /* ===== NEU: Tablet / Medium (2 Spalten bleiben, aber Proportionen näher am Desktop) ===== */
+      /* ===== Tablet / Medium (nur wenn Breite wirklich 901–1199 ist) ===== */
       @media (max-width: 1199px) and (min-width: 901px) {
         #intro-overlay {
-          /* Hero etwas weiter weg von Topbar + unten mehr Luft für Hint */
           padding: 92px 32px 64px;
           gap: 32px;
         }
@@ -147,26 +141,23 @@
         }
 
         .intro-card img {
-          /* minimal kleiner, damit unten nix kollidiert */
           max-height: 380px;
         }
 
         .intro-hint {
-          /* klein genug, damit es nicht in den Subtext reinragt */
           bottom: 16px;
           right: 22px;
           font-size: 0.75rem;
         }
       }
 
-      /* ===== Desktop größer, Grid garantiert: bleibt nebeneinander ===== */
+      /* ===== Desktop größer ===== */
       @media (min-width: 1200px) {
         #intro-overlay-inner {
           max-width: min(1600px, 92vw);
         }
 
         .intro-card img {
-          /* wird auf Desktop merklich größer, bleibt aber capped */
           max-height: clamp(420px, 46vh, 720px);
         }
 
@@ -184,17 +175,16 @@
         }
       }
 
-      /* ===== Mobile / schmale Screens: absichtlich untereinander ===== */
+      /* ===== Mobile / schmale Screens ===== */
       @media (max-width: 900px) {
         #intro-overlay {
-          /* etwas weiter nach unten (mehr Abstand zur Topbar) + unten Platz für Hint */
-          padding: 84px 16px 36px;   /* vorher: 72px 16px 24px */
+          padding: 84px 16px 36px;
           align-items: flex-start;
         }
 
         #intro-overlay-inner {
-          grid-template-columns: 1fr; /* 1 Spalte */
-          gap: 20px;                  /* vorher: 24px */
+          grid-template-columns: 1fr;
+          gap: 20px;
         }
 
         .intro-hero {
@@ -207,7 +197,7 @@
         }
 
         .intro-card img {
-          max-height: 300px;          /* vorher: 320px */
+          max-height: 300px;
         }
 
         .intro-hint {
@@ -225,7 +215,7 @@
         }
 
         .intro-card img {
-          max-height: 40vh;   /* beschränkt sich an der Höhe des Screens */
+          max-height: 40vh;
         }
 
         .intro-hint {
@@ -235,19 +225,35 @@
           width: 100%;
         }
       }
+
+      /* ✅ NEU: Tablet-Fix unabhängig von der Breite (Touch-Geräte)
+         Greift auch bei Tablets, die >=1200px breit sind und sonst in "Desktop" fallen. */
+      @media (hover: none) and (pointer: coarse) and (min-width: 901px) {
+        #intro-overlay {
+          /* Hero etwas weiter weg von der Topbar */
+          padding-top: 108px;
+
+          /* unten ein Tick mehr Luft (safer) */
+          padding-bottom: 72px;
+        }
+
+        /* Hero minimal kleiner, damit er "ruhiger" sitzt */
+        .intro-hero-title {
+          font-size: clamp(1.25rem, 1.0rem + 1.0vw, 2.15rem);
+        }
+
+        .intro-hero-sub {
+          font-size: clamp(0.92rem, 0.86rem + 0.25vw, 1.05rem);
+        }
+      }
     </style>
   </head>
 
   <body>
-    <!-- Intro-Overlay mit deinen beiden Bildern -->
     <div id="intro-overlay">
       <div id="intro-overlay-inner">
-
-        <!-- NEU: Werbespruch / Benefit über den Karten -->
         <div class="intro-hero">
           <div class="intro-hero-title">Turn tasks into a zoomable project map.</div>
-
-          <!-- CHANGE 2: clearer flow + subtasks wording -->
           <div class="intro-hero-sub">
             Add tasks in seconds, drag & drop to create subtasks in Edit mode, then hit <strong>Visualize</strong> to turn your list into a task map.
           </div>
@@ -275,11 +281,9 @@
       </div>
     </div>
 
-    <!-- React-Root wie bisher -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 
-    <!-- Mini-Script: Overlay nach der ersten Interaktion ausblenden -->
     <script>
       (function () {
         const overlay = document.getElementById("intro-overlay");
@@ -292,13 +296,8 @@
           window.removeEventListener("keydown", onKey);
         }
 
-        function onClick() {
-          hideIntro();
-        }
-
-        function onKey() {
-          hideIntro();
-        }
+        function onClick() { hideIntro(); }
+        function onKey() { hideIntro(); }
 
         window.addEventListener("click", onClick);
         window.addEventListener("keydown", onKey);
