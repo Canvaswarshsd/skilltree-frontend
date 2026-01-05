@@ -84,11 +84,12 @@ export default function App() {
   const [view, setView] = useState<"edit" | "map">("edit");
 
   // TAB TITLE: dynamic browser tab title
-  useEffect(() => {
-    const appName = "OpenTaskmap";
-    const t = projectTitle.trim().replace(/\s+/g, " ");
-    document.title = t ? `${t} ${appName}` : appName;
-  }, [projectTitle]);
+ useEffect(() => {
+  const baseTitle = "OpenTaskMap | Visualize Tasks as a Zoomable Task Map";
+  const t = projectTitle.trim().replace(/\s+/g, " ");
+  document.title = t ? `${t} – OpenTaskMap` : baseTitle;
+}, [projectTitle]);
+
 
   // Map-States (controlled)
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -771,7 +772,7 @@ function Row({
           placeholder="Task title…"
           readOnly={removeMode}
         />
-        {task.parentId && <span className="task-parent-label">child</span>}
+        {task.parentId && <span className="task-parent-label">subtask</span>}
         <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
