@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenTaskmap</title>
@@ -43,6 +43,34 @@
 
         align-items: start;
         justify-items: center;
+      }
+
+      /* === NEU: Hero-Text über den zwei Cards === */
+      .intro-hero {
+        grid-column: 1 / -1; /* über beide Spalten */
+        width: 100%;
+        max-width: 980px;
+        text-align: center;
+
+        margin-bottom: 6px;
+      }
+
+      .intro-hero-title {
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: #0f172a;
+
+        /* skaliert mit Viewport, bleibt aber im Rahmen */
+        font-size: clamp(1.35rem, 1.05rem + 1.2vw, 2.35rem);
+        line-height: 1.08;
+      }
+
+      .intro-hero-sub {
+        margin-top: 10px;
+        color: #4b5563;
+
+        font-size: clamp(0.95rem, 0.88rem + 0.35vw, 1.12rem);
+        line-height: 1.35;
       }
 
       .intro-card {
@@ -114,6 +142,11 @@
         .intro-sub {
           font-size: clamp(0.9rem, 0.83rem + 0.22vw, 1.07rem);
         }
+
+        .intro-hero {
+          max-width: 1120px;
+          margin-bottom: 10px;
+        }
       }
 
       /* ===== Mobile / schmale Screens: absichtlich untereinander ===== */
@@ -126,6 +159,11 @@
         #intro-overlay-inner {
           grid-template-columns: 1fr; /* 1 Spalte */
           gap: 24px;
+        }
+
+        .intro-hero {
+          max-width: 620px;
+          margin-bottom: 2px;
         }
 
         .intro-card {
@@ -162,6 +200,15 @@
     <!-- Intro-Overlay mit deinen beiden Bildern -->
     <div id="intro-overlay">
       <div id="intro-overlay-inner">
+
+        <!-- NEU: Werbespruch / Benefit über den Karten -->
+        <div class="intro-hero">
+          <div class="intro-hero-title">Turn tasks into a zoomable project map.</div>
+          <div class="intro-hero-sub">
+            Add tasks in seconds, then visualize structure, priorities, and progress at a glance.
+          </div>
+        </div>
+
         <div class="intro-card">
           <img src="/publicintro-add-task.png" alt="How to add tasks" />
           <div class="intro-title">Step 1 – Add your first tasks</div>
@@ -195,7 +242,6 @@
         if (!overlay) return;
 
         function hideIntro() {
-          // nur einmal ausführen
           if (overlay.classList.contains("intro-overlay-hide")) return;
           overlay.classList.add("intro-overlay-hide");
           window.removeEventListener("click", onClick);
@@ -210,7 +256,6 @@
           hideIntro();
         }
 
-        // Erste Maus-Interaktion oder Tastendruck: Intro weg
         window.addEventListener("click", onClick);
         window.addEventListener("keydown", onKey);
       })();
