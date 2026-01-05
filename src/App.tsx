@@ -473,8 +473,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="topbar-scroll">
+      <header className="topbar" data-nosnippet>
+        <div className="topbar-scroll" data-nosnippet>
           <input
             className="project-input"
             value={projectTitle}
