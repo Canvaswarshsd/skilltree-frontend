@@ -4,17 +4,12 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <!-- CHANGE 1 (SEO): better title + description -->
-    <title>OpenTaskMap | Visualize Tasks as a Zoomable Task Map</title>
-    <meta
-      name="description"
-      content="Add tasks in Edit, drag & drop to nest subtasks, then hit Visualize to turn your list into a zoomable task map for project planning."
-    />
+    <title>OpenTaskmap</title>
 
     <!-- Kleines Inline-CSS nur für das Intro-Overlay -->
     <style>
@@ -51,7 +46,7 @@
         justify-items: center;
       }
 
-      /* === NEU: Hero-Text über den zwei Cards === */
+      /* === Hero-Text über den zwei Cards === */
       .intro-hero {
         grid-column: 1 / -1; /* über beide Spalten */
         width: 100%;
@@ -91,7 +86,6 @@
       }
 
       .intro-card img {
-        /* FIX: NICHT mehr auf 100% Breite zwingen (verursacht die weißen Streifen) */
         display: block;
         width: auto;
         max-width: 100%;
@@ -137,7 +131,6 @@
         }
 
         .intro-card img {
-          /* wird auf Desktop merklich größer, bleibt aber capped */
           max-height: clamp(420px, 46vh, 720px);
         }
 
@@ -165,6 +158,10 @@
         #intro-overlay-inner {
           grid-template-columns: 1fr; /* 1 Spalte */
           gap: 24px;
+
+          /* FIX: Reserviert unten Platz für den Hint, damit nichts überlappt */
+          padding-bottom: 48px;
+          box-sizing: border-box;
         }
 
         .intro-hero {
@@ -179,6 +176,13 @@
         .intro-card img {
           max-height: 320px;
         }
+
+        /* FIX: Hint minimal kleiner + etwas weiter innen, damit er sauber sitzt */
+        .intro-hint {
+          right: 16px;
+          bottom: 14px;
+          font-size: 0.76rem;
+        }
       }
 
       /* ===== Sehr niedrige / Landscape-Handy-Ansicht ===== */
@@ -189,7 +193,7 @@
         }
 
         .intro-card img {
-          max-height: 40vh;   /* beschränkt sich an der Höhe des Screens */
+          max-height: 40vh;
         }
 
         .intro-hint {
@@ -203,15 +207,10 @@
   </head>
 
   <body>
-    <!-- Intro-Overlay mit deinen beiden Bildern -->
     <div id="intro-overlay">
       <div id="intro-overlay-inner">
-
-        <!-- NEU: Werbespruch / Benefit über den Karten -->
         <div class="intro-hero">
           <div class="intro-hero-title">Turn tasks into a zoomable project map.</div>
-
-          <!-- CHANGE 2: clearer flow + subtasks wording -->
           <div class="intro-hero-sub">
             Add tasks in seconds, drag & drop to create subtasks in Edit mode, then hit <strong>Visualize</strong> to turn your list into a task map.
           </div>
@@ -229,7 +228,7 @@
           <img src="/publicintro-visualize.png" alt="How to visualize the map" />
           <div class="intro-title">Step 2 – Visualize the map</div>
           <div class="intro-sub">
-            Hit <strong>Visualize</strong> to see your project as a task map.
+            Hit <strong>Visualize</strong> to see your project as a Task map.
           </div>
         </div>
       </div>
@@ -239,11 +238,9 @@
       </div>
     </div>
 
-    <!-- React-Root wie bisher -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 
-    <!-- Mini-Script: Overlay nach der ersten Interaktion ausblenden -->
     <script>
       (function () {
         const overlay = document.getElementById("intro-overlay");
