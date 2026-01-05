@@ -9,58 +9,67 @@
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- CHANGE 1 (SEO): better title + description -->
     <title>OpenTaskMap | Visualize Tasks as a Zoomable Task Map</title>
     <meta
       name="description"
       content="Add tasks in Edit, drag & drop to nest subtasks, then hit Visualize to turn your list into a zoomable task map for project planning."
     />
 
-    <!-- Kleines Inline-CSS nur für das Intro-Overlay -->
     <style>
       /* Vollflächige Ebene über der App – nur solange sichtbar, bis der User das erste Mal interagiert */
       #intro-overlay {
         position: fixed;
-        top: 0;              /* immer ab ganz oben */
+        top: 0;
         left: 0;
         right: 0;
         bottom: 0;
         background: #ffffff;
-        z-index: 900;        /* < Topbar (1000), damit die Topbar IMMER oben bleibt */
+        z-index: 900; /* < Topbar (1000), damit die Topbar IMMER oben bleibt */
 
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 40px;
 
-        /* Base: unverändert, aber mit etwas mehr Bottom-Reserve (tiny) */
-        padding: 80px 40px 40px;  /* vorher: 80px 40px 32px */
+        /* Proportionaler Weißraum:
+           - oben skaliert mit Höhe (damit Hero nicht an Topbar klebt)
+           - Seiten skaliert mit Breite (damit Desktop nicht "zu viel weiß" hat)
+           - unten genug Platz für Hint */
+        padding:
+          clamp(84px, 10vh, 140px)
+          clamp(16px, 4vw, 56px)
+          clamp(44px, 8vh, 90px);
 
         box-sizing: border-box;
         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       }
 
-      /* === Grid, damit Tablet/PC NIE wrappt (außer Mobile) === */
+      /* === 2-Spalten Layout für Desktop + Tablet (gleiche Komposition) === */
       #intro-overlay-inner {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr)); /* immer 2 Spalten */
-        gap: 40px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+
+        /* Gap skaliert leicht mit Viewport, bleibt aber in Grenzen */
+        gap: clamp(22px, 3vw, 40px);
 
         width: 100%;
-        max-width: 1100px;
+
+        /* Wichtig: nicht 1100px hard-cappen -> sonst riesiger Weißrand am Gaming-Desktop
+           Stattdessen: bis max 1600px, aber auch immer relativ zum Viewport */
+        max-width: min(92vw, 1600px);
 
         align-items: start;
         justify-items: center;
       }
 
-      /* === NEU: Hero-Text über den zwei Cards === */
+      /* Hero über beide Spalten */
       .intro-hero {
-        grid-column: 1 / -1; /* über beide Spalten */
+        grid-column: 1 / -1;
         width: 100%;
-        max-width: 980px;
+        max-width: min(1120px, 92vw);
         text-align: center;
 
-        margin-bottom: 6px;
+        /* Abstand zu den Cards: bleibt "proportional" */
+        margin-bottom: clamp(6px, 1.2vh, 12px);
       }
 
       .intro-hero-title {
@@ -68,16 +77,16 @@
         letter-spacing: -0.02em;
         color: #0f172a;
 
-        /* skaliert mit Viewport, bleibt aber im Rahmen */
-        font-size: clamp(1.35rem, 1.05rem + 1.2vw, 2.35rem);
+        /* Font skaliert sanft – ohne harte Sprünge */
+        font-size: clamp(1.55rem, 1.05rem + 1.6vw, 2.55rem);
         line-height: 1.08;
       }
 
       .intro-hero-sub {
-        margin-top: 10px;
+        margin-top: clamp(8px, 1.4vh, 12px);
         color: #4b5563;
 
-        font-size: clamp(0.95rem, 0.88rem + 0.35vw, 1.12rem);
+        font-size: clamp(0.98rem, 0.9rem + 0.35vw, 1.14rem);
         line-height: 1.35;
       }
 
@@ -85,134 +94,77 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
+
+        /* spacing innerhalb der Card */
+        gap: clamp(10px, 1.6vh, 12px);
 
         width: 100%;
-        max-width: none;
         text-align: center;
       }
 
       .intro-card img {
-        /* FIX: NICHT mehr auf 100% Breite zwingen (verursacht die weißen Streifen) */
         display: block;
         width: auto;
         max-width: 100%;
         height: auto;
 
-        max-height: 420px;           /* Standard */
+        /* Entscheidend: Bildhöhe an Viewport-Höhe koppeln,
+           damit Tablet nicht "zu groß" wirkt */
+        max-height: clamp(300px, 40vh, 520px);
+
         border-radius: 12px;
         box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
         object-fit: contain;
       }
 
       .intro-title {
-        font-size: 1rem;
+        font-size: clamp(0.98rem, 0.92rem + 0.2vw, 1.18rem);
         font-weight: 700;
         color: #0f172a;
       }
 
       .intro-sub {
-        font-size: 0.9rem;
+        font-size: clamp(0.88rem, 0.84rem + 0.18vw, 1.06rem);
         color: #4b5563;
       }
 
       .intro-hint {
         position: absolute;
-        bottom: 22px;
-        right: 28px;
-        font-size: 0.8rem;
+        bottom: clamp(12px, 2vh, 22px);
+        right: clamp(14px, 2vw, 28px);
+        font-size: clamp(0.72rem, 0.66rem + 0.18vw, 0.82rem);
         color: #6b7280;
         opacity: 0.9;
         white-space: nowrap;
       }
 
-      /* Ausblenden mit sanfter Transition, wenn wir „fertig“ sind */
+      /* Ausblenden mit sanfter Transition */
       #intro-overlay.intro-overlay-hide {
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.25s ease-out;
       }
 
-      /* ===== NEU: Tablet / Medium (2 Spalten bleiben, aber Proportionen näher am Desktop) ===== */
-      @media (max-width: 1199px) and (min-width: 901px) {
-        #intro-overlay {
-          /* Hero etwas weiter weg von Topbar + unten mehr Luft für Hint */
-          padding: 92px 32px 64px;
-          gap: 32px;
-        }
-
-        #intro-overlay-inner {
-          gap: 32px;
-          max-width: 1040px;
-        }
-
-        .intro-card img {
-          /* minimal kleiner, damit unten nix kollidiert */
-          max-height: 380px;
-        }
-
-        .intro-hint {
-          /* klein genug, damit es nicht in den Subtext reinragt */
-          bottom: 16px;
-          right: 22px;
-          font-size: 0.75rem;
-        }
-      }
-
-      /* ===== Desktop größer, Grid garantiert: bleibt nebeneinander ===== */
-      @media (min-width: 1200px) {
-        #intro-overlay-inner {
-          max-width: min(1600px, 92vw);
-        }
-
-        .intro-card img {
-          /* wird auf Desktop merklich größer, bleibt aber capped */
-          max-height: clamp(420px, 46vh, 720px);
-        }
-
-        .intro-title {
-          font-size: clamp(1rem, 0.86rem + 0.32vw, 1.22rem);
-        }
-
-        .intro-sub {
-          font-size: clamp(0.9rem, 0.83rem + 0.22vw, 1.07rem);
-        }
-
-        .intro-hero {
-          max-width: 1120px;
-          margin-bottom: 10px;
-        }
-      }
-
       /* ===== Mobile / schmale Screens: absichtlich untereinander ===== */
       @media (max-width: 900px) {
         #intro-overlay {
-          /* etwas weiter nach unten (mehr Abstand zur Topbar) + unten Platz für Hint */
-          padding: 84px 16px 36px;   /* vorher: 72px 16px 24px */
+          padding: 84px 16px 36px;
           align-items: flex-start;
         }
 
         #intro-overlay-inner {
-          grid-template-columns: 1fr; /* 1 Spalte */
-          gap: 20px;                  /* vorher: 24px */
-        }
-
-        .intro-hero {
-          max-width: 620px;
-          margin-bottom: 2px;
-        }
-
-        .intro-card {
-          width: 100%;
+          grid-template-columns: 1fr;
+          gap: 20px;
+          max-width: 700px;
         }
 
         .intro-card img {
-          max-height: 300px;          /* vorher: 320px */
+          max-height: 300px;
         }
 
         .intro-hint {
-          bottom: 14px;
-          right: 16px;
+          bottom: 12px;
+          right: 14px;
           font-size: 0.75rem;
         }
       }
@@ -225,7 +177,7 @@
         }
 
         .intro-card img {
-          max-height: 40vh;   /* beschränkt sich an der Höhe des Screens */
+          max-height: 40vh;
         }
 
         .intro-hint {
@@ -239,15 +191,10 @@
   </head>
 
   <body>
-    <!-- Intro-Overlay mit deinen beiden Bildern -->
     <div id="intro-overlay">
       <div id="intro-overlay-inner">
-
-        <!-- NEU: Werbespruch / Benefit über den Karten -->
         <div class="intro-hero">
           <div class="intro-hero-title">Turn tasks into a zoomable project map.</div>
-
-          <!-- CHANGE 2: clearer flow + subtasks wording -->
           <div class="intro-hero-sub">
             Add tasks in seconds, drag & drop to create subtasks in Edit mode, then hit <strong>Visualize</strong> to turn your list into a task map.
           </div>
@@ -275,11 +222,9 @@
       </div>
     </div>
 
-    <!-- React-Root wie bisher -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 
-    <!-- Mini-Script: Overlay nach der ersten Interaktion ausblenden -->
     <script>
       (function () {
         const overlay = document.getElementById("intro-overlay");
@@ -292,13 +237,8 @@
           window.removeEventListener("keydown", onKey);
         }
 
-        function onClick() {
-          hideIntro();
-        }
-
-        function onKey() {
-          hideIntro();
-        }
+        function onClick() { hideIntro(); }
+        function onKey() { hideIntro(); }
 
         window.addEventListener("click", onClick);
         window.addEventListener("keydown", onKey);
