@@ -690,40 +690,26 @@ function Row({
     }
   };
 
-  // Einheitlicher Gesture-Starter (Handles + Touch überall außerhalb vom Input)
-  const beginGesture = (
-    e: React.PointerEvent,
-    rowEl: HTMLElement,
-    taskId: string,
-    captureEl: HTMLElement
-  ) => {
-    if (removeMode) return;
-
+  const handlePointerDownDragZone = (e: React.PointerEvent) => {
+    if (removeMode) return; // im Remove-Modus kein Drag
+    const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const id = rowEl.dataset.taskId!;
     editGesture.current = {
       pointerId: e.pointerId,
       rowEl,
       startX: e.clientX,
       startY: e.clientY,
       started: false,
-      taskId,
+      taskId: id,
     };
-
-    captureEl.setPointerCapture?.(e.pointerId);
-
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     clearTimer();
     longPressTimer.current = window.setTimeout(() => {
       if (editGesture.current && !editGesture.current.started) {
-        startDrag(taskId);
+        startDrag(id);
         editGesture.current.started = true;
       }
     }, LONGPRESS_MS);
-  };
-
-  const handlePointerDownDragZone = (e: React.PointerEvent) => {
-    if (removeMode) return;
-    const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
-    const id = rowEl.dataset.taskId!;
-    beginGesture(e, rowEl, id, e.currentTarget as HTMLElement);
   };
 
   const handlePointerUpAnywhere = (e: React.PointerEvent) => {
@@ -755,27 +741,9 @@ function Row({
         }}
         onPointerDown={(e) => {
           if (removeMode) return;
-
           const target = e.target as HTMLElement;
-
-          // Input bleibt reine Edit-Zone
           if (target.closest(".task-input")) return;
-
-          // Desktop: wie vorher sofort starten
-          if (e.pointerType === "mouse") {
-            startDrag(task.id);
-            return;
-          }
-
-          // Touch/Pen: überall außerhalb vom Input Drag-Gesture armieren
-          const rowEl = e.currentTarget as HTMLElement;
-          const captureEl =
-            (target as any)?.setPointerCapture ? target : rowEl;
-
-          beginGesture(e, rowEl, task.id, captureEl);
-
-          // wichtig gegen iOS Text/Scroll-Heuristik
-          e.preventDefault();
+          if (e.pointerType === "mouse") startDrag(task.id);
         }}
         onPointerUp={handlePointerUpAnywhere}
         onClick={(e) => {
@@ -784,10 +752,7 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span
-          className="drag-handle left"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -807,10 +772,7 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label">child</span>}
-        <span
-          className="drag-handle right"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
       {children.map((c) => (
