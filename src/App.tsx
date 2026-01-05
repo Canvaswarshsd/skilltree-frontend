@@ -772,7 +772,7 @@ function Row({
           placeholder="Task title…"
           readOnly={removeMode}
         />
-        {task.parentId && <span className="task-parent-label">subtask</span>}
+        {task.parentId && <span className="task-parent-label"></span>}
         <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
