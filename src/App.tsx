@@ -690,7 +690,7 @@ function Row({
     }
   };
 
-  // Einheitlicher Gesture-Starter (wird von Handles UND Touch-Row-Zonen genutzt)
+  // Einheitlicher Gesture-Starter (Handles + Touch überall außerhalb vom Input)
   const beginGesture = (
     e: React.PointerEvent,
     rowEl: HTMLElement,
@@ -757,29 +757,25 @@ function Row({
           if (removeMode) return;
 
           const target = e.target as HTMLElement;
+
+          // Input bleibt reine Edit-Zone
           if (target.closest(".task-input")) return;
 
-          // Desktop: wie vorher (sofort)
+          // Desktop: wie vorher sofort starten
           if (e.pointerType === "mouse") {
             startDrag(task.id);
             return;
           }
 
-          // Touch/Pen: nur "links oder rechts neben dem Input" als Drag-Zone behandeln
+          // Touch/Pen: überall außerhalb vom Input Drag-Gesture armieren
           const rowEl = e.currentTarget as HTMLElement;
-          const inputEl = rowEl.querySelector(".task-input") as HTMLElement | null;
-          if (!inputEl) return;
+          const captureEl =
+            (target as any)?.setPointerCapture ? target : rowEl;
 
-          const ir = inputEl.getBoundingClientRect();
-          const x = e.clientX;
-          const PAD = 8;
+          beginGesture(e, rowEl, task.id, captureEl);
 
-          const inLeftZone = x <= ir.left - PAD;
-          const inRightZone = x >= ir.right + PAD;
-
-          if (!inLeftZone && !inRightZone) return;
-
-          beginGesture(e, rowEl, task.id, rowEl);
+          // wichtig gegen iOS Text/Scroll-Heuristik
+          e.preventDefault();
         }}
         onPointerUp={handlePointerUpAnywhere}
         onClick={(e) => {
