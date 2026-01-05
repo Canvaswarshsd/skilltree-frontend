@@ -690,26 +690,40 @@ function Row({
     }
   };
 
-  const handlePointerDownDragZone = (e: React.PointerEvent) => {
-    if (removeMode) return; // im Remove-Modus kein Drag
-    const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
-    const id = rowEl.dataset.taskId!;
+  // Einheitlicher Gesture-Starter (wird von Handles UND Touch-Row-Zonen genutzt)
+  const beginGesture = (
+    e: React.PointerEvent,
+    rowEl: HTMLElement,
+    taskId: string,
+    captureEl: HTMLElement
+  ) => {
+    if (removeMode) return;
+
     editGesture.current = {
       pointerId: e.pointerId,
       rowEl,
       startX: e.clientX,
       startY: e.clientY,
       started: false,
-      taskId: id,
+      taskId,
     };
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
+    captureEl.setPointerCapture?.(e.pointerId);
+
     clearTimer();
     longPressTimer.current = window.setTimeout(() => {
       if (editGesture.current && !editGesture.current.started) {
-        startDrag(id);
+        startDrag(taskId);
         editGesture.current.started = true;
       }
     }, LONGPRESS_MS);
+  };
+
+  const handlePointerDownDragZone = (e: React.PointerEvent) => {
+    if (removeMode) return;
+    const rowEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const id = rowEl.dataset.taskId!;
+    beginGesture(e, rowEl, id, e.currentTarget as HTMLElement);
   };
 
   const handlePointerUpAnywhere = (e: React.PointerEvent) => {
@@ -741,9 +755,31 @@ function Row({
         }}
         onPointerDown={(e) => {
           if (removeMode) return;
+
           const target = e.target as HTMLElement;
           if (target.closest(".task-input")) return;
-          if (e.pointerType === "mouse") startDrag(task.id);
+
+          // Desktop: wie vorher (sofort)
+          if (e.pointerType === "mouse") {
+            startDrag(task.id);
+            return;
+          }
+
+          // Touch/Pen: nur "links oder rechts neben dem Input" als Drag-Zone behandeln
+          const rowEl = e.currentTarget as HTMLElement;
+          const inputEl = rowEl.querySelector(".task-input") as HTMLElement | null;
+          if (!inputEl) return;
+
+          const ir = inputEl.getBoundingClientRect();
+          const x = e.clientX;
+          const PAD = 8;
+
+          const inLeftZone = x <= ir.left - PAD;
+          const inRightZone = x >= ir.right + PAD;
+
+          if (!inLeftZone && !inRightZone) return;
+
+          beginGesture(e, rowEl, task.id, rowEl);
         }}
         onPointerUp={handlePointerUpAnywhere}
         onClick={(e) => {
@@ -752,7 +788,10 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="drag-handle left"
+          onPointerDown={handlePointerDownDragZone}
+        />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -772,7 +811,10 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label">child</span>}
-        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="drag-handle right"
+          onPointerDown={handlePointerDownDragZone}
+        />
       </div>
 
       {children.map((c) => (
