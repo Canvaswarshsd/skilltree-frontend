@@ -1,5 +1,6 @@
 // frontend/src/App.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "./App.css";
 import MapView, { MapApi, Task as MapTask } from "./MapView";
 import { Analytics } from "@vercel/analytics/react";
@@ -83,13 +84,18 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"edit" | "map">("edit");
 
-  // TAB TITLE: dynamic browser tab title
- useEffect(() => {
-  const baseTitle = "OpenTaskMap | Visualize Projects as a Zoomable Task Map";
-  const t = projectTitle.trim().replace(/\s+/g, " ");
-  document.title = t ? `${t} – OpenTaskMap` : baseTitle;
-}, [projectTitle]);
+  // iPhone-only fix: render dropdown menus via portal (avoid iOS Safari fixed-in-scrollcontainer bug)
+  const isIPhone = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return /\biPhone\b/i.test(navigator.userAgent);
+  }, []);
 
+  // TAB TITLE: dynamic browser tab title
+  useEffect(() => {
+    const baseTitle = "OpenTaskMap | Visualize Projects as a Zoomable Task Map";
+    const t = projectTitle.trim().replace(/\s+/g, " ");
+    document.title = t ? `${t} – OpenTaskMap` : baseTitle;
+  }, [projectTitle]);
 
   // Map-States (controlled)
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -472,6 +478,48 @@ export default function App() {
 
   const isRemoveModeActive = removeMode;
 
+  const saveMenu =
+    saveOpen && savePos ? (
+      <div
+        className="save-menu"
+        role="menu"
+        style={{
+          top: savePos.top,
+          left: savePos.left,
+          transform: "translateX(-100%)",
+        }}
+        onMouseLeave={() => setSaveOpen(false)}
+      >
+        <button className="save-item" onClick={doSave}>
+          Save
+        </button>
+        <button className="save-item" onClick={doSaveAs}>
+          Save As…
+        </button>
+      </div>
+    ) : null;
+
+  const downloadMenu =
+    downloadOpen && downloadPos ? (
+      <div
+        className="save-menu"
+        role="menu"
+        style={{
+          top: downloadPos.top,
+          left: downloadPos.left,
+          transform: "translateX(-100%)",
+        }}
+        onMouseLeave={() => setDownloadOpen(false)}
+      >
+        <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
+          PDF
+        </button>
+        <button className="save-item" onClick={() => mapRef.current?.exportPNG()}>
+          PNG
+        </button>
+      </div>
+    ) : null;
+
   return (
     <div className="app">
       <header className="topbar" data-nosnippet>
@@ -515,28 +563,18 @@ export default function App() {
           </button>
 
           <div className="save-wrap">
-            <button ref={saveBtnRef} className="btn btn-save" onClick={toggleSaveMenu}>
+            <button
+              ref={saveBtnRef}
+              className="btn btn-save"
+              onClick={toggleSaveMenu}
+            >
               Save
             </button>
-            {saveOpen && savePos && (
-              <div
-                className="save-menu"
-                role="menu"
-                style={{
-                  top: savePos.top,
-                  left: savePos.left,
-                  transform: "translateX(-100%)",
-                }}
-                onMouseLeave={() => setSaveOpen(false)}
-              >
-                <button className="save-item" onClick={doSave}>
-                  Save
-                </button>
-                <button className="save-item" onClick={doSaveAs}>
-                  Save As…
-                </button>
-              </div>
-            )}
+            {isIPhone
+              ? saveMenu
+                ? createPortal(saveMenu, document.body)
+                : null
+              : saveMenu}
           </div>
 
           <button
@@ -550,28 +588,18 @@ export default function App() {
           </button>
 
           <div className="save-wrap">
-            <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>
+            <button
+              ref={downloadBtnRef}
+              className="view-btn"
+              onClick={toggleDownloadMenu}
+            >
               Download
             </button>
-            {downloadOpen && downloadPos && (
-              <div
-                className="save-menu"
-                role="menu"
-                style={{
-                  top: downloadPos.top,
-                  left: downloadPos.left,
-                  transform: "translateX(-100%)",
-                }}
-                onMouseLeave={() => setDownloadOpen(false)}
-              >
-                <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
-                  PDF
-                </button>
-                <button className="save-item" onClick={() => mapRef.current?.exportPNG()}>
-                  PNG
-                </button>
-              </div>
-            )}
+            {isIPhone
+              ? downloadMenu
+                ? createPortal(downloadMenu, document.body)
+                : null
+              : downloadMenu}
           </div>
         </div>
       </header>
@@ -753,7 +781,10 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="drag-handle left"
+          onPointerDown={handlePointerDownDragZone}
+        />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -773,7 +804,10 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label"></span>}
-        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="drag-handle right"
+          onPointerDown={handlePointerDownDragZone}
+        />
       </div>
 
       {children.map((c) => (
