@@ -2203,7 +2203,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const screenY = wrapRect.top + (pan.y + nodeY * scale);
 
     const rPx = st.worldRadius * scale;
-    const yAnchor = screenY - rPx - 10; // 10px above node circle
+    const yAnchor = screenY - rPx + 2; // 10px above node circle
 
     el.style.left = `${screenX}px`;
     el.style.top = `${yAnchor}px`;
