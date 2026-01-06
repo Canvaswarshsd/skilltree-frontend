@@ -1997,6 +1997,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   const angleHudStateRef = useRef<AngleHudState | null>(null);
   const angleHudElRef = useRef<HTMLDivElement | null>(null);
+  const angleHudNodeElRef = useRef<HTMLElement | null>(null);
   const angleHudPosRef = useRef<Record<string, { x: number; y: number }>>({});
 
   const angleHudNorm360 = (deg: number) => {
@@ -2132,6 +2133,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   function angleHudStart(nodeId: string, targetEl?: HTMLElement) {
     if (!active || removeMode) return;
     if (nodeId === CENTER_ID) return;
+angleHudNodeElRef.current =
+  ((targetEl as any)?.closest?.(".skill-node") as HTMLElement) || targetEl || null;
 
     const t = getTask(nodeId);
     if (!t) return;
@@ -2196,14 +2199,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     el.textContent = txt;
     el.style.display = "block";
 
-    const wrapRect = wrapperRef.current.getBoundingClientRect();
+    const rect = angleHudNodeElRef.current?.getBoundingClientRect();
 
-    // world->screen (matches your map-pan transform)
-    const screenX = wrapRect.left + (pan.x + nodeX * scale);
-    const screenY = wrapRect.top + (pan.y + nodeY * scale);
+const screenX = rect
+  ? rect.left + rect.width / 2
+  : wrapperRef.current.getBoundingClientRect().left + (pan.x + nodeX * scale);
 
-    const rPx = st.worldRadius * scale;
-    const yAnchor = screenY - rPx + 2; // 10px above node circle
+const screenY = rect
+  ? rect.top + rect.height / 2
+  : wrapperRef.current.getBoundingClientRect().top + (pan.y + nodeY * scale);
+
+// super nah über dem Kreis:
+const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
+
 
     el.style.left = `${screenX}px`;
     el.style.top = `${yAnchor}px`;
@@ -2214,6 +2222,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     if (st) st.active = false;
     angleHudStateRef.current = null;
     angleHudHideEl();
+	angleHudNodeElRef.current = null;
   }
 
   // cleanup on unmount
