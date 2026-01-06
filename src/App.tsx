@@ -85,7 +85,7 @@ export default function App() {
 
   // TAB TITLE: dynamic browser tab title
  useEffect(() => {
-  const baseTitle = "OpenTaskMap | Visualize Tasks as a Zoomable Task Map";
+  const baseTitle = "OpenTaskMap | Visualize Projects as a Zoomable Task Map";
   const t = projectTitle.trim().replace(/\s+/g, " ");
   document.title = t ? `${t} – OpenTaskMap` : baseTitle;
 }, [projectTitle]);
