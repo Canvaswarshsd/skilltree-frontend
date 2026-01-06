@@ -497,6 +497,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       startClient: { x: e.clientX, y: e.clientY },
       startOffset: getOffset(id),
     };
+	angleHudStart(id, e.target as HTMLElement);
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
@@ -519,8 +520,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const dx = e.clientX - d.startClient.x;
     const dy = e.clientY - d.startClient.y;
     setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
+	angleHudUpdateLive(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
   function onNodePointerUp() {
+  angleHudEnd();
     if (!vDrag.current) return;
     vDrag.current = null;
     nodeDragging.current = false;
@@ -1978,6 +1981,250 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     exportPDF: doDownloadPDF,
     resetView,
   }));
+
+  /* ---------- Angle HUD (append-only) ---------- */
+
+  type AngleHudState = {
+    active: boolean;
+    id: string;
+    parentId: string;
+    baseX: number; // world pos without this node's offset
+    baseY: number;
+    worldRadius: number; // node radius in world units (so it scales correctly)
+    offX: number; // latest offset while dragging
+    offY: number;
+  };
+
+  const angleHudStateRef = useRef<AngleHudState | null>(null);
+  const angleHudElRef = useRef<HTMLDivElement | null>(null);
+  const angleHudPosRef = useRef<Record<string, { x: number; y: number }>>({});
+
+  const angleHudNorm360 = (deg: number) => {
+    let d = deg % 360;
+    if (d < 0) d += 360;
+    return d;
+  };
+
+  // 0° = 12 Uhr, clockwise (90° rechts, 180° unten, 270° links)
+  const angleHudComputeDeg = (px: number, py: number, nx: number, ny: number) => {
+    const dx = nx - px;
+    const dy = ny - py;
+    const rad = Math.atan2(dx, -dy);
+    return angleHudNorm360((rad * 180) / Math.PI);
+  };
+
+  const angleHudEnsureEl = () => {
+    if (angleHudElRef.current) return angleHudElRef.current;
+    const el = document.createElement("div");
+    el.setAttribute("data-anglehud", "1");
+    el.style.position = "fixed";
+    el.style.zIndex = "999999";
+    el.style.pointerEvents = "none";
+    el.style.padding = "6px 10px";
+    el.style.borderRadius = "10px";
+    el.style.background = "rgba(2, 6, 23, 0.92)";
+    el.style.color = "#fff";
+    el.style.fontSize = "12px";
+    el.style.fontWeight = "800";
+    el.style.letterSpacing = "0.2px";
+    el.style.boxShadow = "0 10px 30px rgba(0,0,0,0.18)";
+    el.style.whiteSpace = "nowrap";
+    el.style.transform = "translate(-50%, -100%)";
+    el.style.display = "none";
+    document.body.appendChild(el);
+    angleHudElRef.current = el;
+    return el;
+  };
+
+  const angleHudHideEl = () => {
+    const el = angleHudElRef.current;
+    if (!el) return;
+    el.style.display = "none";
+  };
+
+  // Positionen genau wie euer Render (roots radial + children spread)
+  const angleHudComputePosMap = (): Record<string, { x: number; y: number }> => {
+    const pos: Record<string, { x: number; y: number }> = {};
+    pos[CENTER_ID] = { x: 0, y: 0 };
+
+    // adjacency
+    const byParent = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (!t.parentId) continue;
+      const arr = byParent.get(t.parentId) || [];
+      arr.push(t);
+      byParent.set(t.parentId, arr);
+    }
+
+    const totalRoots = Math.max(roots.length, 1);
+
+    const rec = (parentId: string, px: number, py: number, gpx: number, gpy: number) => {
+      const kids = byParent.get(parentId) || [];
+      if (kids.length === 0) return;
+
+      const base = Math.atan2(py - gpy, px - gpx);
+      const SPREAD = Math.min(
+        Math.PI,
+        Math.max(Math.PI * 0.6, (kids.length - 1) * (Math.PI / 6))
+      );
+      const step = kids.length === 1 ? 0 : SPREAD / (kids.length - 1);
+      const start = base - SPREAD / 2;
+
+      for (let idx = 0; idx < kids.length; idx++) {
+        const kid = kids[idx];
+        const ang = start + idx * step;
+
+        const cxBase = px + Math.cos(ang) * RING;
+        const cyBase = py + Math.sin(ang) * RING;
+
+        const ko = getOffset(kid.id);
+        const cx = cxBase + ko.x;
+        const cy = cyBase + ko.y;
+
+        pos[kid.id] = { x: cx, y: cy };
+        rec(kid.id, cx, cy, px, py);
+      }
+    };
+
+    for (let i = 0; i < roots.length; i++) {
+      const root = roots[i];
+      const ang = (i / totalRoots) * Math.PI * 2;
+
+      const rxBase = Math.cos(ang) * ROOT_RADIUS;
+      const ryBase = Math.sin(ang) * ROOT_RADIUS;
+
+      const ro = getOffset(root.id);
+      const rx = rxBase + ro.x;
+      const ry = ryBase + ro.y;
+
+      pos[root.id] = { x: rx, y: ry };
+      rec(root.id, rx, ry, 0, 0);
+    }
+
+    return pos;
+  };
+
+  const angleHudGetPosMapNow = () => {
+    const m = angleHudPosRef.current;
+    if (m && m[CENTER_ID]) return m;
+    return angleHudComputePosMap();
+  };
+
+  // Update posMap whenever tasks/offsets change
+  useEffect(() => {
+    angleHudPosRef.current = angleHudComputePosMap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, nodeOffset, roots.length]);
+
+  // Hide if view becomes inactive or remove-mode toggled
+  useEffect(() => {
+    if (!active || removeMode) angleHudEnd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, removeMode]);
+
+  // If user pans/zooms while dragging, keep tooltip in sync
+  useEffect(() => {
+    const st = angleHudStateRef.current;
+    if (st?.active) angleHudUpdateLive(st.id, st.offX, st.offY);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pan.x, pan.y, scale]);
+
+  function angleHudStart(nodeId: string, targetEl?: HTMLElement) {
+    if (!active || removeMode) return;
+    if (nodeId === CENTER_ID) return;
+
+    const t = getTask(nodeId);
+    if (!t) return;
+
+    const parentId = t.parentId ?? CENTER_ID;
+
+    const posMap = angleHudGetPosMapNow();
+    const curOff = getOffset(nodeId);
+    const curPos = posMap[nodeId] ?? { x: curOff.x, y: curOff.y };
+
+    // base world position without this node's offset
+    const baseX = curPos.x - curOff.x;
+    const baseY = curPos.y - curOff.y;
+
+    // world radius from real DOM size (so tooltip stays nicely above circle)
+    let worldRadius = (t.parentId === null ? R_ROOT : R_CHILD);
+    try {
+      if (targetEl) {
+        const rect = targetEl.getBoundingClientRect();
+        const screenR = rect.width / 2;
+        const s = scale || 1;
+        worldRadius = screenR / s;
+      }
+    } catch {
+      // keep fallback
+    }
+
+    angleHudStateRef.current = {
+      active: true,
+      id: nodeId,
+      parentId,
+      baseX,
+      baseY,
+      worldRadius,
+      offX: curOff.x,
+      offY: curOff.y,
+    };
+
+    // show immediately
+    angleHudUpdateLive(nodeId, curOff.x, curOff.y);
+  }
+
+  function angleHudUpdateLive(nodeId: string, nextOffX: number, nextOffY: number) {
+    const st = angleHudStateRef.current;
+    if (!st || !st.active) return;
+    if (st.id !== nodeId) return;
+    if (!wrapperRef.current) return;
+
+    st.offX = nextOffX;
+    st.offY = nextOffY;
+
+    const posMap = angleHudGetPosMapNow();
+    const parentPos = posMap[st.parentId] ?? posMap[CENTER_ID] ?? { x: 0, y: 0 };
+
+    const nodeX = st.baseX + nextOffX;
+    const nodeY = st.baseY + nextOffY;
+
+    const deg = angleHudComputeDeg(parentPos.x, parentPos.y, nodeX, nodeY);
+    const txt = `${Math.round(deg)}°`;
+
+    const el = angleHudEnsureEl();
+    el.textContent = txt;
+    el.style.display = "block";
+
+    const wrapRect = wrapperRef.current.getBoundingClientRect();
+
+    // world->screen (matches your map-pan transform)
+    const screenX = wrapRect.left + (pan.x + nodeX * scale);
+    const screenY = wrapRect.top + (pan.y + nodeY * scale);
+
+    const rPx = st.worldRadius * scale;
+    const yAnchor = screenY - rPx - 10; // 10px above node circle
+
+    el.style.left = `${screenX}px`;
+    el.style.top = `${yAnchor}px`;
+  }
+
+  function angleHudEnd() {
+    const st = angleHudStateRef.current;
+    if (st) st.active = false;
+    angleHudStateRef.current = null;
+    angleHudHideEl();
+  }
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (angleHudElRef.current) {
+        angleHudElRef.current.remove();
+        angleHudElRef.current = null;
+      }
+    };
+  }, []);
 
   /* ---------- JSX ---------- */
   return (
