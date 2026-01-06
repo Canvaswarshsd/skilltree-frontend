@@ -587,3 +587,45 @@ html, body { overflow: hidden; }
   visibility: visible !important;
   display: block !important;
 }
+
+/* ===== iPhone rotation fix (robust): avoid sticky/100vh issues on iPhone Safari ===== */
+/* Paste at the VERY end of App.css */
+@supports (-webkit-touch-callout: none) {
+  /* Target iPhones (coarse pointer + phone-like viewport). Avoid iPads. */
+  @media (hover: none) and (pointer: coarse) and (max-width: 600px),
+         (hover: none) and (pointer: coarse) and (max-height: 500px) {
+
+    /* Use dynamic viewport height on iPhone Safari */
+    .app {
+      height: 100dvh;
+      min-height: 100dvh;
+    }
+
+    /* iPhone Safari: sticky can vanish after rotation -> make topbar fixed */
+    .topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 1000;
+
+      /* keep notched iPhones safe in landscape */
+      padding-top: calc(.75rem + env(safe-area-inset-top));
+      padding-left: calc(1.25rem + env(safe-area-inset-left));
+      padding-right: calc(1.25rem + env(safe-area-inset-right));
+    }
+
+    /* Body fills the screen; content starts below the fixed topbar */
+    .body {
+      height: 100dvh;
+      padding-top: 56px;
+    }
+
+    /* Keep the offscreen export host consistent with dynamic viewport on iPhone */
+    .map-host-hidden {
+      top: 56px !important;
+      height: calc(100dvh - 56px) !important;
+    }
+  }
+}
