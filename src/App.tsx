@@ -82,7 +82,7 @@ function isDescendant(
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [view, setView] = useState<"edit" | "map">("edit");
+  const [view, setView] = useState<"edit" | "map" | "about">("edit");
 
   // iPhone-only fix: render dropdown menus via portal (avoid iOS Safari fixed-in-scrollcontainer bug)
   const isIPhone = useMemo(() => {
@@ -204,6 +204,11 @@ export default function App() {
     if (!projectTitle.trim()) setProjectTitle("Project");
     clearRemoveMode();
     setView("map");
+  };
+
+  const openAbout = () => {
+    clearRemoveMode();
+    setView("about");
   };
 
   // Edit: DnD in Liste (gleiches Verhalten wie vorher)
@@ -555,6 +560,7 @@ export default function App() {
           >
             {removeMode ? "Removing" : "Remove Task"}
           </button>
+
           <button
             className={view === "map" ? "view-btn active" : "view-btn"}
             onClick={openMap}
@@ -601,6 +607,14 @@ export default function App() {
                 : null
               : downloadMenu}
           </div>
+
+          {/* NEW: About mode button (same behavior & styling as Edit/Visualize) */}
+          <button
+            className={view === "about" ? "view-btn active" : "view-btn"}
+            onClick={openAbout}
+          >
+            About
+          </button>
         </div>
       </header>
 
@@ -616,7 +630,11 @@ export default function App() {
 
       <div className="body">
         {/* MapView bleibt IMMER gemountet (Export funktioniert auch im Edit) */}
-        <div className={"map-host" + (view === "map" ? "" : " map-host-hidden")}>
+        <div
+          className={
+            "map-host" + (view === "map" ? "" : " map-host-hidden")
+          }
+        >
           <MapView
             ref={mapRef}
             active={view === "map"}
@@ -660,6 +678,19 @@ export default function App() {
                 onToggleRemoveTarget={toggleRemoveTarget}
               />
             ))}
+          </div>
+        )}
+
+        {view === "about" && (
+          <div className="task-list">
+            <div style={{ maxWidth: 900 }}>
+              <h2 style={{ margin: 0, fontSize: "1.25rem", color: "#fff" }}>
+                Coming soon
+              </h2>
+              <p style={{ marginTop: ".6rem", color: "rgba(255,255,255,.85)" }}>
+                This page will be used for About / Feedback information.
+              </p>
+            </div>
           </div>
         )}
       </div>
