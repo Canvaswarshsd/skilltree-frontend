@@ -608,7 +608,6 @@ export default function App() {
               : downloadMenu}
           </div>
 
-          {/* NEW: About mode button (same behavior & styling as Edit/Visualize) */}
           <button
             className={view === "about" ? "view-btn active" : "view-btn"}
             onClick={openAbout}
@@ -630,11 +629,7 @@ export default function App() {
 
       <div className="body">
         {/* MapView bleibt IMMER gemountet (Export funktioniert auch im Edit) */}
-        <div
-          className={
-            "map-host" + (view === "map" ? "" : " map-host-hidden")
-          }
-        >
+        <div className={"map-host" + (view === "map" ? "" : " map-host-hidden")}>
           <MapView
             ref={mapRef}
             active={view === "map"}
@@ -683,13 +678,22 @@ export default function App() {
 
         {view === "about" && (
           <div className="task-list">
-            <div style={{ maxWidth: 900 }}>
-              <h2 style={{ margin: 0, fontSize: "1.25rem", color: "#fff" }}>
+            <div
+              style={{
+                maxWidth: 900,
+                background: "rgba(15,23,42,.35)",
+                border: "1px solid rgba(148,163,184,.22)",
+                borderRadius: ".9rem",
+                padding: "1.05rem 1.15rem",
+                boxShadow: "0 12px 36px rgba(0,0,0,.12)",
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: "1.1rem", margin: 0 }}>
                 Coming soon
-              </h2>
-              <p style={{ marginTop: ".6rem", color: "rgba(255,255,255,.85)" }}>
-                This page will be used for About / Feedback information.
-              </p>
+              </div>
+              <div style={{ marginTop: ".45rem", opacity: 0.85, lineHeight: 1.5 }}>
+                About / Feedback page placeholder.
+              </div>
             </div>
           </div>
         )}
@@ -812,10 +816,7 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span
-          className="drag-handle left"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -835,10 +836,7 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label"></span>}
-        <span
-          className="drag-handle right"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
       {children.map((c) => (
