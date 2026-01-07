@@ -692,7 +692,7 @@ export default function App() {
                 Coming soon
               </div>
               <div style={{ marginTop: ".45rem", opacity: 0.85, lineHeight: 1.5 }}>
-                About / Feedback page placeholder.
+                About / Feedback page.
               </div>
             </div>
           </div>
