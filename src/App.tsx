@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import MapView, { MapApi, Task as MapTask } from "./MapView";
+import AboutView from "./views/AboutView";
 import { Analytics } from "@vercel/analytics/react";
 
 type Task = MapTask;
@@ -84,9 +85,7 @@ function isDescendant(
  * sauber in ein separates Script (z.B. src/views/AboutView.tsx) verschieben können).
  * Aktuell bewusst leer => weißer Hintergrund, kein Placeholder.
  */
-function AboutView() {
-  return null;
-}
+
 
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
