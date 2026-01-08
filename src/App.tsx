@@ -79,6 +79,15 @@ function isDescendant(
   return false;
 }
 
+/**
+ * About View (ausgelagert als eigene Komponente, damit wir das About-Layout später
+ * sauber in ein separates Script (z.B. src/views/AboutView.tsx) verschieben können).
+ * Aktuell bewusst leer => weißer Hintergrund, kein Placeholder.
+ */
+function AboutView() {
+  return null;
+}
+
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -676,27 +685,7 @@ export default function App() {
           </div>
         )}
 
-        {view === "about" && (
-          <div className="task-list">
-            <div
-              style={{
-                maxWidth: 900,
-                background: "rgba(15,23,42,.35)",
-                border: "1px solid rgba(148,163,184,.22)",
-                borderRadius: ".9rem",
-                padding: "1.05rem 1.15rem",
-                boxShadow: "0 12px 36px rgba(0,0,0,.12)",
-              }}
-            >
-              <div style={{ fontWeight: 800, fontSize: "1.1rem", margin: 0 }}>
-                Coming soon
-              </div>
-              <div style={{ marginTop: ".45rem", opacity: 0.85, lineHeight: 1.5 }}>
-                About / Feedback page.
-              </div>
-            </div>
-          </div>
-        )}
+        {view === "about" && <AboutView />}
       </div>
 
       <Analytics />
@@ -816,7 +805,10 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="drag-handle left"
+          onPointerDown={handlePointerDownDragZone}
+        />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -836,7 +828,10 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label"></span>}
-        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
+        <span
+          className="drag-handle right"
+          onPointerDown={handlePointerDownDragZone}
+        />
       </div>
 
       {children.map((c) => (
