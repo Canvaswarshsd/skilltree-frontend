@@ -524,15 +524,28 @@ export default function App() {
         }}
         onMouseLeave={() => setDownloadOpen(false)}
       >
-        <button className="save-item" style={{ color: "#d4af37" }}>
-          TaskMap
-        </button>
-        <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
-          PDF
-        </button>
-        <button className="save-item" onClick={() => mapRef.current?.exportPNG()}>
-          PNG
-        </button>
+        <button
+  className="save-item"
+  style={{ color: "#d4af37" }}
+  onClick={async () => {
+    setDownloadOpen(false);
+    const meta = mapRef.current?.getTaskMapMeta?.();
+    if (!meta) return;
+    await exportPortableTaskMap({
+      projectTitle,
+      tasks,
+      nodeOffset,
+      pan,
+      scale,
+      branchColorOverride,
+      centerColor,
+      ...meta,
+    } as any);
+  }}
+>
+  TaskMap
+</button>
+
       </div>
     ) : null;
 
