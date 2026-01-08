@@ -86,7 +86,6 @@ function isDescendant(
  * Aktuell bewusst leer => weißer Hintergrund, kein Placeholder.
  */
 
-
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -524,6 +523,9 @@ export default function App() {
         }}
         onMouseLeave={() => setDownloadOpen(false)}
       >
+        <button className="save-item" style={{ color: "#d4af37" }}>
+          TaskMap
+        </button>
         <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
           PDF
         </button>
