@@ -75,7 +75,7 @@ export default function AboutView() {
       maxWidth: 920,
       borderRadius: 16,
       border: "1px solid rgba(148,163,184,.22)",
-      background: "rgba(15,23,42,.22)",
+      background: "rgba(15,23,42,.40)",
       boxShadow: "0 12px 36px rgba(0,0,0,.10)",
       padding: "18px 18px 16px",
     } as React.CSSProperties,
