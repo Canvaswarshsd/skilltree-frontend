@@ -546,6 +546,12 @@ export default function App() {
   TaskMap
 </button>
 
+        <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
+          PDF
+        </button>
+        <button className="save-item" onClick={() => mapRef.current?.exportPNG()}>
+          PNG
+        </button>
       </div>
     ) : null;
 
