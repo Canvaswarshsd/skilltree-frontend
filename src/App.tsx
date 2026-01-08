@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import MapView, { MapApi, Task as MapTask } from "./MapView";
+import { exportPortableTaskMap } from "./export/taskmapPortable";
 import AboutView from "./views/AboutView";
 import { Analytics } from "@vercel/analytics/react";
 

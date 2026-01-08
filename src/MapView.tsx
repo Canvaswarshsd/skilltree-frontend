@@ -36,6 +36,14 @@ export type MapApi = {
 
   exportPDF: () => Promise<void>;
   resetView: () => void;
+  
+    getTaskMapMeta: () => {
+    centerDone: boolean;
+    centerAttachments: TaskAttachment[];
+    branchEdgeColorOverride: Record<string, string>;
+    edgeColorOverride: Record<string, string>;
+  };
+
 };
 
 type MapViewProps = {
@@ -1980,6 +1988,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     exportJPG: doDownloadPNG, // Alias
     exportPDF: doDownloadPDF,
     resetView,
+	
+	getTaskMapMeta: () => ({
+      centerDone,
+      centerAttachments,
+      branchEdgeColorOverride,
+      edgeColorOverride,
+    }),
+	
   }));
 
   /* ---------- Angle HUD (append-only) ---------- */
