@@ -216,8 +216,8 @@ export default function AboutView() {
               <div style={styles.divider} />
 
               <div style={styles.hint}>
-                <b>Tip:</b> If something broke, tell me what you clicked + what you expected
-                to happen. Screenshots help.
+                <b>PS:</b> If something broke, tell me what you clicked + what you expected
+                to happen xD
               </div>
 
               <div style={styles.small}>
