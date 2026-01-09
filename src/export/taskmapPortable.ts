@@ -1,9 +1,6 @@
 // frontend/src/export/taskmapPortable.ts
 import type { Task, TaskAttachment } from "../MapView";
 
-// ✅ FIX: pdfjs-dist nutzt .mjs (nicht .js) + ist ESM
-import pdfjsRaw from "pdfjs-dist/legacy/build/pdf.min.mjs?raw";
-
 type Meta = {
   centerDone?: boolean;
   centerAttachments?: TaskAttachment[];
@@ -27,17 +24,85 @@ const slugifyTitle = (t: string) =>
     .replace(/^[-_]+|[-_]+$/g, "")
     .toLowerCase();
 
+function isIOSLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const iOS = /iPad|iPhone|iPod/i.test(ua);
+  const iPadOS = navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1;
+  return iOS || iPadOS;
+}
+
+async function trySaveWithFilePicker(filename: string, blob: Blob): Promise<boolean> {
+  const w = window as any;
+  if (typeof w.showSaveFilePicker !== "function") return false;
+
+  try {
+    const handle = await w.showSaveFilePicker({
+      suggestedName: filename,
+      types: [
+        {
+          description: "HTML",
+          accept: { "text/html": [".html"] },
+        },
+      ],
+    });
+
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function tryShareFile(filename: string, blob: Blob): Promise<boolean> {
+  const nav = navigator as any;
+  if (!nav?.share) return false;
+
+  try {
+    const file = new File([blob], filename, { type: blob.type || "text/html" });
+    if (typeof nav.canShare === "function" && !nav.canShare({ files: [file] })) return false;
+
+    await nav.share({
+      files: [file],
+      title: filename,
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function downloadBlob(filename: string, blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+  void (async () => {
+    // 1) Best: File picker (Chromium, teils Android)
+    if (await trySaveWithFilePicker(filename, blob)) return;
+
+    // 2) Mobile/iOS Best: Share Sheet ("Save to Files")
+    if (await tryShareFile(filename, blob)) return;
+
+    // 3) Fallback: classic download
+    const url = URL.createObjectURL(blob);
+
+    // iOS Safari blockt a.download oft → öffne stattdessen in neuem Tab
+    if (isIOSLike()) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 15_000);
+  })();
 }
 
 function normalizeAttachment(a: any): TaskAttachment | null {
@@ -77,11 +142,6 @@ function escapeHtml(s: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
-}
-
-function escapeScriptText(s: string) {
-  // verhindert Script-Termination
-  return String(s ?? "").replace(/<\/script/gi, "<\\/script");
 }
 
 export function exportPortableTaskMap(args: Args) {
@@ -258,7 +318,6 @@ export function exportPortableTaskMap(args: Args) {
     min-height:0;
   }
 
-  /* ✅ Sidebar schmaler */
   .fileList{
     width: 200px;
     border-right: 1px solid rgba(255,255,255,0.10);
@@ -290,7 +349,6 @@ export function exportPortableTaskMap(args: Args) {
     overflow:hidden;
   }
 
-  /* ✅ PDF.js Viewer (kein iframe) */
   .pdfBar{
     position:absolute; left:0; right:0; top:0;
     height: 44px;
@@ -320,31 +378,32 @@ export function exportPortableTaskMap(args: Args) {
     cursor:pointer;
   }
   .btnSm:hover{background: rgba(255,255,255,0.10);}
-  .pdfScroll{
+
+  .pdfWrap{
     position:absolute; left:0; right:0; top:44px; bottom:0;
-    overflow:auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 12px;
+    overflow:hidden;
+    background:#0b1220;
   }
-  canvas.pdfPage{
-    display:block;
-    margin: 0 auto 12px auto;
-    background:#fff;
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+  iframe.pdfFrame{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    border:0;
+    background:#0b1220;
   }
   .pdfMsg{
-    color: rgba(255,255,255,0.70);
+    position:absolute; left:0; right:0; top:0; bottom:0;
+    display:flex; align-items:center; justify-content:center;
+    text-align:center;
+    padding: 18px;
+    color: rgba(255,255,255,0.72);
     font-size: 12px;
-    padding: 14px;
+    pointer-events:none;
   }
 
-  /* ✅ Wenn genau 1 PDF: linke Liste komplett weg */
   .modal.one .fileList{ display:none; }
   .modal.one .modalBody{ display:block; }
   .modal.one .viewer{ position:relative; width:100%; height:100%; }
 
-  /* ✅ Mobile: Liste oben statt links */
   @media (max-width: 820px){
     .modalBody{ flex-direction:column; }
     .fileList{
@@ -384,21 +443,20 @@ export function exportPortableTaskMap(args: Args) {
           <div class="pdfBar">
             <div class="pdfInfo" id="pdfInfo">PDF</div>
             <div style="display:flex; gap:8px; align-items:center;">
-              <button class="btnSm" id="pdfFit">Fit</button>
-              <button class="btnSm" id="pdfZoomOut">−</button>
-              <button class="btnSm" id="pdfZoomIn">+</button>
+              <button class="btnSm" id="pdfOpen">Open</button>
+              <button class="btnSm" id="pdfDownload">Download</button>
             </div>
           </div>
-          <div class="pdfScroll" id="pdfScroll"></div>
+          <div class="pdfWrap" id="pdfWrap">
+            <div class="pdfMsg" id="pdfMsg">Select a PDF.</div>
+            <iframe class="pdfFrame" id="pdfFrame" title="PDF Viewer"></iframe>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
   <script id="__OTM_DATA__" type="application/json">${json}</script>
-
-  <!-- ✅ PDF.js Code als Text, wird danach als ES-Module geladen -->
-  <script id="__OTM_PDFJS__" type="text/plain">${escapeScriptText(pdfjsRaw)}</script>
 
 <script type="module">
 (() => {
@@ -409,22 +467,6 @@ export function exportPortableTaskMap(args: Args) {
 })();
 
 const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "{}");
-
-// ✅ PDF.js als Module aus Blob laden (portable + offline)
-async function loadPdfjs() {
-  const code = (document.getElementById("__OTM_PDFJS__")?.textContent || "").trim();
-  if (!code) throw new Error("Missing PDFJS code");
-
-  const blobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-  try {
-    const mod = await import(blobUrl);
-    return mod;
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-const PDFJS = await loadPdfjs();
 
 (() => {
   const CENTER_ID = "__CENTER__";
@@ -894,30 +936,35 @@ const PDFJS = await loadPdfjs();
     applyTransform();
   }, { passive:false });
 
-  // ===== PDF Overlay (PDF.js) =====
+  // ===== PDF Overlay (native viewer via iframe) =====
   const overlay = document.getElementById("overlay");
   const btnClose = document.getElementById("btnClose");
   const fileList = document.getElementById("fileList");
   const modalTitle = document.getElementById("modalTitle");
   const modalEl = document.getElementById("modal");
 
-  const pdfScroll = document.getElementById("pdfScroll");
   const pdfInfo = document.getElementById("pdfInfo");
-  const pdfFit = document.getElementById("pdfFit");
-  const pdfZoomOut = document.getElementById("pdfZoomOut");
-  const pdfZoomIn = document.getElementById("pdfZoomIn");
+  const pdfOpen = document.getElementById("pdfOpen");
+  const pdfDownload = document.getElementById("pdfDownload");
+  const pdfFrame = document.getElementById("pdfFrame");
+  const pdfMsg = document.getElementById("pdfMsg");
 
-  let renderToken = 0;
-  let lastBytes = null;
-  let fitScale = 1;
-  let userScaleMul = 1;
+  let currentPdfUrl = "";
+  let currentObjectUrl = "";
 
-  const showPdfMsg = (msg) => {
-    pdfScroll.innerHTML = "";
-    const d = document.createElement("div");
-    d.className = "pdfMsg";
-    d.textContent = msg;
-    pdfScroll.appendChild(d);
+  const showMsg = (msg) => {
+    pdfMsg.textContent = msg;
+    pdfMsg.style.display = "flex";
+  };
+  const hideMsg = () => {
+    pdfMsg.style.display = "none";
+  };
+
+  const revokeObjectUrl = () => {
+    if (currentObjectUrl) {
+      try { URL.revokeObjectURL(currentObjectUrl); } catch {}
+      currentObjectUrl = "";
+    }
   };
 
   const dataUrlToBytes = (dataUrl) => {
@@ -928,122 +975,85 @@ const PDFJS = await loadPdfjs();
     const meta = s.slice(0, comma);
     const b64 = s.slice(comma + 1);
     if (!/;base64/i.test(meta)) return null;
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  };
-
-  const fetchToBytes = async (url) => {
-    const res = await fetch(url);
-    const ab = await res.arrayBuffer();
-    return new Uint8Array(ab);
-  };
-
-  const computeFitScale = async (pdf) => {
-    const page1 = await pdf.getPage(1);
-    const v1 = page1.getViewport({ scale: 1 });
-    const pad = 24;
-    const w = Math.max(320, (pdfScroll.clientWidth || 800) - pad);
-    return Math.max(0.25, Math.min(4, w / v1.width));
-  };
-
-  const renderAllPages = async (bytes, scale) => {
-    const token = ++renderToken;
-    pdfScroll.innerHTML = "";
-    showPdfMsg("Loading PDF...");
 
     try {
-      const loadingTask = PDFJS.getDocument({ data: bytes, disableWorker: true });
-      const pdf = await loadingTask.promise;
-      if (token !== renderToken) return;
-
-      pdfScroll.innerHTML = "";
-      pdfInfo.textContent = "PDF · " + pdf.numPages + " page" + (pdf.numPages === 1 ? "" : "s");
-
-      const dpr = window.devicePixelRatio || 1;
-
-      for (let p=1; p<=pdf.numPages; p++) {
-        if (token !== renderToken) return;
-
-        const page = await pdf.getPage(p);
-        const viewport = page.getViewport({ scale });
-
-        const canvas = document.createElement("canvas");
-        canvas.className = "pdfPage";
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("No canvas ctx");
-
-        const outputScale = dpr;
-
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
-        canvas.style.width = Math.floor(viewport.width) + "px";
-        canvas.style.height = Math.floor(viewport.height) + "px";
-
-        // white background
-        ctx.save();
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-
-        const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
-
-        pdfScroll.appendChild(canvas);
-
-        await page.render({
-          canvasContext: ctx,
-          viewport,
-          transform
-        }).promise;
-      }
-    } catch {
-      pdfScroll.innerHTML = "";
-      showPdfMsg("Could not render PDF.");
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    } catch (err) {
+      console.error("[OTM] base64 decode failed", err);
+      return null;
     }
   };
 
-  const openPdf = async (att) => {
-    renderToken++;
-    lastBytes = null;
+  const setPdfSrc = (url, isObjectUrl=false) => {
+    revokeObjectUrl();
+    currentPdfUrl = url || "";
+    if (isObjectUrl) currentObjectUrl = url || "";
 
+    pdfFrame.src = "about:blank";
+    showMsg("Loading PDF...");
+
+    // set after blank to force refresh
+    setTimeout(() => {
+      pdfFrame.src = currentPdfUrl || "about:blank";
+    }, 0);
+  };
+
+  pdfFrame.addEventListener("load", () => {
+    if (currentPdfUrl && currentPdfUrl !== "about:blank") hideMsg();
+  });
+
+  pdfOpen.addEventListener("click", () => {
+    if (!currentPdfUrl) return;
+    window.open(currentPdfUrl, "_blank", "noopener,noreferrer");
+  });
+
+  pdfDownload.addEventListener("click", () => {
+    if (!currentPdfUrl) return;
+    const a = document.createElement("a");
+    a.href = currentPdfUrl;
+    a.download = (pdfInfo.textContent || "attachment.pdf").replace(/^PDF\\s*·\\s*/i, "") || "attachment.pdf";
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    try { a.click(); } catch {}
+    a.remove();
+  });
+
+  const openPdf = async (att) => {
     const du = String(att?.dataUrl || "");
     if (!du) {
-      showPdfMsg("No PDF data.");
-      return;
-    }
-
-    if (du.startsWith("blob:")) {
-      showPdfMsg("This attachment was stored as a blob URL and cannot be embedded. Please re-attach the PDF so it becomes a data URL.");
+      showMsg("No PDF data.");
       return;
     }
 
     pdfInfo.textContent = att?.name || "PDF";
-    showPdfMsg("Loading PDF...");
 
-    let bytes = dataUrlToBytes(du);
-    if (!bytes) {
-      try {
-        bytes = await fetchToBytes(du);
-      } catch {
-        showPdfMsg("Could not load PDF bytes.");
-        return;
-      }
+    // Blob URLs from the editor session are NOT portable.
+    if (du.startsWith("blob:")) {
+      showMsg("This PDF was stored as a blob URL and is not portable. Please re-attach so it becomes a data URL.");
+      currentPdfUrl = "";
+      pdfFrame.src = "about:blank";
+      return;
     }
 
-    lastBytes = bytes;
-
-    try {
-      const loadingTask = PDFJS.getDocument({ data: bytes, disableWorker: true });
-      const pdf = await loadingTask.promise;
-      fitScale = await computeFitScale(pdf);
-      userScaleMul = 1;
-      await renderAllPages(bytes, fitScale * userScaleMul);
-      pdfScroll.scrollTop = 0;
-    } catch {
-      showPdfMsg("Could not render PDF.");
+    // Best case: embedded data URL -> convert to blob URL for reliable viewing (esp. mobile)
+    const bytes = dataUrlToBytes(du);
+    if (bytes) {
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      setPdfSrc(url, true);
+      return;
     }
+
+    // Otherwise: treat as URL (may require internet / may be blocked by X-Frame-Options)
+    // We still try to open in iframe; user can always use "Open".
+    setPdfSrc(du, false);
+
+    // Show a helpful hint for tricky cases
+    showMsg("If the PDF does not appear here, tap Open.");
   };
 
   const closeOverlay = () => {
@@ -1051,32 +1061,15 @@ const PDFJS = await loadPdfjs();
     overlay.setAttribute("aria-hidden","true");
     fileList.innerHTML = "";
     modalEl.classList.remove("one");
-    renderToken++;
-    lastBytes = null;
-    pdfScroll.innerHTML = "";
+    currentPdfUrl = "";
+    revokeObjectUrl();
+    pdfFrame.src = "about:blank";
+    showMsg("Select a PDF.");
   };
 
   btnClose.addEventListener("click", closeOverlay);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(); });
-
-  pdfFit.addEventListener("click", () => {
-    if (!lastBytes) return;
-    userScaleMul = 1;
-    void renderAllPages(lastBytes, fitScale * userScaleMul);
-  });
-
-  pdfZoomIn.addEventListener("click", () => {
-    if (!lastBytes) return;
-    userScaleMul = Math.min(3.5, userScaleMul * 1.15);
-    void renderAllPages(lastBytes, fitScale * userScaleMul);
-  });
-
-  pdfZoomOut.addEventListener("click", () => {
-    if (!lastBytes) return;
-    userScaleMul = Math.max(0.35, userScaleMul / 1.15);
-    void renderAllPages(lastBytes, fitScale * userScaleMul);
-  });
 
   const openFilesForNode = (nodeId) => {
     const atts = (getAttachments(nodeId) || []).filter(a => a && a.dataUrl);
@@ -1094,13 +1087,17 @@ const PDFJS = await loadPdfjs();
     fileList.innerHTML = "";
 
     if (atts.length === 1) {
-      fileList.innerHTML = '<div class="pdfMsg">1 PDF attached.</div>';
+      fileList.innerHTML = '<div class="pdfMsg" style="position:static; display:block; padding:10px; pointer-events:auto;">1 PDF attached.</div>';
       void openPdf(atts[0]);
       return;
     }
 
     const info = document.createElement("div");
     info.className = "pdfMsg";
+    info.style.position = "static";
+    info.style.display = "block";
+    info.style.padding = "10px";
+    info.style.pointerEvents = "auto";
     info.textContent = atts.length + " PDFs attached:";
     fileList.appendChild(info);
 
