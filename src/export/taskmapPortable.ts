@@ -1,8 +1,8 @@
 // frontend/src/export/taskmapPortable.ts
 import type { Task, TaskAttachment } from "../MapView";
 
-// PDF.js als RAW-String inline in die Export-HTML einbetten (damit offline + portable)
-import pdfjsRaw from "pdfjs-dist/legacy/build/pdf.min.js?raw";
+// ✅ FIX: pdfjs-dist nutzt .mjs (nicht .js) + ist ESM
+import pdfjsRaw from "pdfjs-dist/legacy/build/pdf.min.mjs?raw";
 
 type Meta = {
   centerDone?: boolean;
@@ -70,8 +70,17 @@ function normalizeCenterAttachments(atts?: TaskAttachment[]): TaskAttachment[] {
   return (src as any[]).map(normalizeAttachment).filter(Boolean) as TaskAttachment[];
 }
 
-function escapeScriptContent(s: string) {
-  // verhindert </script> Termination innerhalb inline <script>
+function escapeHtml(s: string) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function escapeScriptText(s: string) {
+  // verhindert Script-Termination
   return String(s ?? "").replace(/<\/script/gi, "<\\/script");
 }
 
@@ -281,7 +290,7 @@ export function exportPortableTaskMap(args: Args) {
     overflow:hidden;
   }
 
-  /* PDF.js UI */
+  /* ✅ PDF.js Viewer (kein iframe) */
   .pdfBar{
     position:absolute; left:0; right:0; top:0;
     height: 44px;
@@ -311,7 +320,6 @@ export function exportPortableTaskMap(args: Args) {
     cursor:pointer;
   }
   .btnSm:hover{background: rgba(255,255,255,0.10);}
-
   .pdfScroll{
     position:absolute; left:0; right:0; top:44px; bottom:0;
     overflow:auto;
@@ -355,7 +363,7 @@ export function exportPortableTaskMap(args: Args) {
       <span class="name" id="tTitle"></span>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
-      <div class="hint">Drag to pan · Wheel to zoom · Click a node to open PDFs</div>
+      <div class="hint">Drag to pan · Wheel/Pinch to zoom · Click a node to open PDFs</div>
       <button class="btn" id="btnCenter">Center</button>
     </div>
   </div>
@@ -389,13 +397,36 @@ export function exportPortableTaskMap(args: Args) {
 
   <script id="__OTM_DATA__" type="application/json">${json}</script>
 
-  <!-- PDF.js inline (offline + portable) -->
-  <script>${escapeScriptContent(pdfjsRaw)}</script>
+  <!-- ✅ PDF.js Code als Text, wird danach als ES-Module geladen -->
+  <script id="__OTM_PDFJS__" type="text/plain">${escapeScriptText(pdfjsRaw)}</script>
 
-<script>
+<script type="module">
 (() => {
-  const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent);
+  const prevent = (e) => e.preventDefault();
+  document.addEventListener("gesturestart", prevent, { passive:false });
+  document.addEventListener("gesturechange", prevent, { passive:false });
+  document.addEventListener("gestureend", prevent, { passive:false });
+})();
 
+const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "{}");
+
+// ✅ PDF.js als Module aus Blob laden (portable + offline)
+async function loadPdfjs() {
+  const code = (document.getElementById("__OTM_PDFJS__")?.textContent || "").trim();
+  if (!code) throw new Error("Missing PDFJS code");
+
+  const blobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+  try {
+    const mod = await import(blobUrl);
+    return mod;
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+const PDFJS = await loadPdfjs();
+
+(() => {
   const CENTER_ID = "__CENTER__";
   const BRANCH_COLORS = ["#f97316","#6366f1","#22c55e","#eab308","#0ea5e9","#f43f5e"];
 
@@ -419,6 +450,7 @@ export function exportPortableTaskMap(args: Args) {
   const worldEl = document.getElementById("world");
   const viewportEl = document.getElementById("viewport");
   const btnCenter = document.getElementById("btnCenter");
+  const topbarEl = document.querySelector(".topbar");
 
   document.getElementById("tTitle").textContent = (DATA.projectTitle || "Project");
 
@@ -476,7 +508,6 @@ export function exportPortableTaskMap(args: Args) {
     return { x1,y1,x2,y2 };
   };
 
-  // Done-Vererbung wie in MapView
   const doneCache = new Map();
   const effectiveDone = (id) => {
     if (doneCache.has(id)) return doneCache.get(id);
@@ -502,7 +533,6 @@ export function exportPortableTaskMap(args: Args) {
     return (t && Array.isArray(t.attachments)) ? t.attachments : [];
   };
 
-  // Positionen wie MapView (Roots radial, Children spread)
   const pos = {};
   pos[CENTER_ID] = { x: 0, y: 0 };
 
@@ -571,7 +601,6 @@ export function exportPortableTaskMap(args: Args) {
     return branchEdgeColorOverride[rootId] || base;
   };
 
-  // Layout bounds
   const nodes = [];
   const edges = [];
 
@@ -593,7 +622,6 @@ export function exportPortableTaskMap(args: Args) {
 
   for (const root of roots) {
     pushNode(root.id, "root", R_ROOT);
-
     const c = pos[CENTER_ID];
     const rP = pos[root.id];
     const seg = segmentBetweenCircles(c.x,c.y,R_CENTER,rP.x,rP.y,R_ROOT);
@@ -627,7 +655,6 @@ export function exportPortableTaskMap(args: Args) {
 
   for (const root of roots) addEdgesRec(root.id, root.id);
 
-  // bounds (nodes only)
   let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
   for (const n of nodes) {
     minX = Math.min(minX, n.x - n.r);
@@ -645,7 +672,6 @@ export function exportPortableTaskMap(args: Args) {
   const originX = -minX;
   const originY = -minY;
 
-  // build stage
   const stage = document.createElement("div");
   stage.className = "map-stage";
   stage.style.width = width + "px";
@@ -669,6 +695,9 @@ export function exportPortableTaskMap(args: Args) {
   }
 
   stage.appendChild(svg);
+
+  let suppressClickUntil = 0;
+  const suppressClick = () => { suppressClickUntil = Date.now() + 250; };
 
   for (const n of nodes) {
     const el = document.createElement("div");
@@ -703,6 +732,7 @@ export function exportPortableTaskMap(args: Args) {
 
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      if (Date.now() < suppressClickUntil) return;
       openFilesForNode(n.id);
     });
 
@@ -712,8 +742,10 @@ export function exportPortableTaskMap(args: Args) {
   worldEl.innerHTML = "";
   worldEl.appendChild(stage);
 
-  // pan/zoom (wie vorher: drag + wheel)
   let panX = 0, panY = 0, z = 1;
+
+  const clampZ = (v) => Math.max(MIN_Z, Math.min(MAX_Z, v));
+
   const applyTransform = () => {
     worldEl.style.transform = \`translate(\${panX}px,\${panY}px) scale(\${z})\`;
   };
@@ -721,50 +753,135 @@ export function exportPortableTaskMap(args: Args) {
   const centerView = () => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const topbarH = 74;
-    const usableH = vh - topbarH - 20;
 
-    z = Math.min(1, Math.max(MIN_Z, Math.min(MAX_Z, Math.min((vw*0.90)/width, (usableH*0.92)/height))));
+    const tb = topbarEl ? topbarEl.getBoundingClientRect() : { bottom: 74 };
+    const topbarBottom = tb.bottom + 10;
+    const usableH = Math.max(1, vh - topbarBottom - 14);
+
+    z = clampZ(Math.min(1, Math.min((vw*0.90)/width, (usableH*0.92)/height)));
     panX = (vw/2) - (width*z)/2;
-    panY = (topbarH + (usableH/2)) - (height*z)/2;
+    panY = (topbarBottom + (usableH/2)) - (height*z)/2;
+
     applyTransform();
   };
 
   btnCenter.addEventListener("click", centerView);
   window.addEventListener("resize", centerView);
 
-  let dragging = false;
-  let lastX = 0, lastY = 0;
+  viewportEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  const pointers = new Map();
+  let panStart = null;
+  let pinchStart = null;
+
+  const isOnNode = (e) => !!(e.target && e.target.closest && e.target.closest(".node"));
+
+  const startPinchIfPossible = () => {
+    if (pointers.size !== 2) return;
+    const ids = Array.from(pointers.keys());
+    const p1 = pointers.get(ids[0]);
+    const p2 = pointers.get(ids[1]);
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+
+    try { viewportEl.setPointerCapture?.(ids[0]); } catch {}
+    try { viewportEl.setPointerCapture?.(ids[1]); } catch {}
+
+    pinchStart = {
+      dist,
+      z0: z,
+      worldX: (midX - panX) / z,
+      worldY: (midY - panY) / z,
+    };
+    panStart = null;
+  };
 
   viewportEl.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    viewportEl.setPointerCapture?.(e.pointerId);
+    const overlayOpen = document.getElementById("overlay").classList.contains("open");
+    if (overlayOpen) return;
+
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size === 2) {
+      startPinchIfPossible();
+      return;
+    }
+
+    if (!isOnNode(e)) {
+      try { viewportEl.setPointerCapture?.(e.pointerId); } catch {}
+      panStart = { id: e.pointerId, x: e.clientX, y: e.clientY, panX0: panX, panY0: panY };
+    } else {
+      panStart = null;
+    }
   });
 
   viewportEl.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    panX += dx;
-    panY += dy;
-    applyTransform();
+    if (!pointers.has(e.pointerId)) return;
+
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const overlayOpen = document.getElementById("overlay").classList.contains("open");
+    if (overlayOpen) return;
+
+    if (pinchStart && pointers.size >= 2) {
+      const ids = Array.from(pointers.keys()).slice(0, 2);
+      const p1 = pointers.get(ids[0]);
+      const p2 = pointers.get(ids[1]);
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+
+      const scale = dist / (pinchStart.dist || 1);
+      z = clampZ(pinchStart.z0 * scale);
+
+      panX = midX - pinchStart.worldX * z;
+      panY = midY - pinchStart.worldY * z;
+
+      suppressClick();
+      applyTransform();
+      return;
+    }
+
+    if (panStart && panStart.id === e.pointerId) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      if (Math.hypot(dx, dy) > 3) suppressClick();
+      panX = panStart.panX0 + dx;
+      panY = panStart.panY0 + dy;
+      applyTransform();
+    }
   });
 
-  viewportEl.addEventListener("pointerup", () => { dragging = false; });
-  viewportEl.addEventListener("pointercancel", () => { dragging = false; });
+  const endPointer = (e) => {
+    if (pointers.has(e.pointerId)) pointers.delete(e.pointerId);
+    try { viewportEl.releasePointerCapture?.(e.pointerId); } catch {}
+
+    if (pointers.size < 2) pinchStart = null;
+
+    if (pointers.size === 1) {
+      const [id, p] = pointers.entries().next().value;
+      panStart = { id, x: p.x, y: p.y, panX0: panX, panY0: panY };
+    } else {
+      panStart = null;
+    }
+  };
+
+  viewportEl.addEventListener("pointerup", endPointer);
+  viewportEl.addEventListener("pointercancel", endPointer);
 
   viewportEl.addEventListener("wheel", (e) => {
     e.preventDefault();
+
+    const overlayOpen = document.getElementById("overlay").classList.contains("open");
+    if (overlayOpen) return;
+
     const rect = viewportEl.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
     const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
-    const next = Math.max(MIN_Z, Math.min(MAX_Z, z * factor));
+    const next = clampZ(z * factor);
 
     const wx = (cx - panX) / z;
     const wy = (cy - panY) / z;
@@ -773,32 +890,29 @@ export function exportPortableTaskMap(args: Args) {
     panX = cx - wx * z;
     panY = cy - wy * z;
 
+    suppressClick();
     applyTransform();
   }, { passive:false });
 
-  // file overlay
+  // ===== PDF Overlay (PDF.js) =====
   const overlay = document.getElementById("overlay");
   const btnClose = document.getElementById("btnClose");
   const fileList = document.getElementById("fileList");
   const modalTitle = document.getElementById("modalTitle");
-  const modal = document.getElementById("modal");
+  const modalEl = document.getElementById("modal");
 
-  // PDF.js UI refs
   const pdfScroll = document.getElementById("pdfScroll");
   const pdfInfo = document.getElementById("pdfInfo");
-  const btnFit = document.getElementById("pdfFit");
-  const btnZoomOut = document.getElementById("pdfZoomOut");
-  const btnZoomIn = document.getElementById("pdfZoomIn");
+  const pdfFit = document.getElementById("pdfFit");
+  const pdfZoomOut = document.getElementById("pdfZoomOut");
+  const pdfZoomIn = document.getElementById("pdfZoomIn");
 
   let renderToken = 0;
   let lastBytes = null;
   let fitScale = 1;
   let userScaleMul = 1;
 
-  const pdfjsLib = window.pdfjsLib;
-  const canRender = !!(pdfjsLib && pdfjsLib.getDocument);
-
-  const showMsg = (msg) => {
+  const showPdfMsg = (msg) => {
     pdfScroll.innerHTML = "";
     const d = document.createElement("div");
     d.className = "pdfMsg";
@@ -835,17 +949,12 @@ export function exportPortableTaskMap(args: Args) {
   };
 
   const renderAllPages = async (bytes, scale) => {
-    if (!canRender) {
-      showMsg("PDF renderer failed to load.");
-      return;
-    }
-
     const token = ++renderToken;
     pdfScroll.innerHTML = "";
-    showMsg("Loading PDF...");
+    showPdfMsg("Loading PDF...");
 
     try {
-      const loadingTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
+      const loadingTask = PDFJS.getDocument({ data: bytes, disableWorker: true });
       const pdf = await loadingTask.promise;
       if (token !== renderToken) return;
 
@@ -862,7 +971,9 @@ export function exportPortableTaskMap(args: Args) {
 
         const canvas = document.createElement("canvas");
         canvas.className = "pdfPage";
-        const ctx = canvas.getContext("2d", { alpha: false });
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("No canvas ctx");
 
         const outputScale = dpr;
 
@@ -871,6 +982,12 @@ export function exportPortableTaskMap(args: Args) {
         canvas.style.width = Math.floor(viewport.width) + "px";
         canvas.style.height = Math.floor(viewport.height) + "px";
 
+        // white background
+        ctx.save();
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+
         const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
 
         pdfScroll.appendChild(canvas);
@@ -878,59 +995,54 @@ export function exportPortableTaskMap(args: Args) {
         await page.render({
           canvasContext: ctx,
           viewport,
-          transform,
-          background: "white"
+          transform
         }).promise;
       }
-    } catch (err) {
+    } catch {
       pdfScroll.innerHTML = "";
-      showMsg("Could not render PDF.");
+      showPdfMsg("Could not render PDF.");
     }
   };
 
   const openPdf = async (att) => {
-    if (!att || !att.dataUrl) return;
+    renderToken++;
+    lastBytes = null;
 
-    if (!canRender) {
-      showMsg("PDF renderer failed to load.");
+    const du = String(att?.dataUrl || "");
+    if (!du) {
+      showPdfMsg("No PDF data.");
       return;
     }
 
-    pdfInfo.textContent = att.name || "PDF";
-    showMsg("Loading PDF...");
-
-    // blob: URLs können in einer neuen Datei nicht mehr gültig sein
-    const du = String(att.dataUrl || "");
     if (du.startsWith("blob:")) {
-      showMsg("This attachment was stored as a blob URL and cannot be embedded. Please re-attach the PDF so it becomes a data URL.");
+      showPdfMsg("This attachment was stored as a blob URL and cannot be embedded. Please re-attach the PDF so it becomes a data URL.");
       return;
     }
+
+    pdfInfo.textContent = att?.name || "PDF";
+    showPdfMsg("Loading PDF...");
 
     let bytes = dataUrlToBytes(du);
     if (!bytes) {
       try {
         bytes = await fetchToBytes(du);
       } catch {
-        showMsg("Could not load PDF bytes.");
+        showPdfMsg("Could not load PDF bytes.");
         return;
       }
     }
 
     lastBytes = bytes;
 
-    // Fit scale neu bestimmen
     try {
-      // schneller: einmal pdf laden, fit scale rechnen, dann rendern
-      const loadingTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
+      const loadingTask = PDFJS.getDocument({ data: bytes, disableWorker: true });
       const pdf = await loadingTask.promise;
       fitScale = await computeFitScale(pdf);
       userScaleMul = 1;
-
-      // rendern (neu laden ist ok; deterministisch + simpler)
       await renderAllPages(bytes, fitScale * userScaleMul);
       pdfScroll.scrollTop = 0;
     } catch {
-      showMsg("Could not render PDF.");
+      showPdfMsg("Could not render PDF.");
     }
   };
 
@@ -938,6 +1050,7 @@ export function exportPortableTaskMap(args: Args) {
     overlay.classList.remove("open");
     overlay.setAttribute("aria-hidden","true");
     fileList.innerHTML = "";
+    modalEl.classList.remove("one");
     renderToken++;
     lastBytes = null;
     pdfScroll.innerHTML = "";
@@ -947,19 +1060,19 @@ export function exportPortableTaskMap(args: Args) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(); });
 
-  btnFit.addEventListener("click", () => {
+  pdfFit.addEventListener("click", () => {
     if (!lastBytes) return;
     userScaleMul = 1;
     void renderAllPages(lastBytes, fitScale * userScaleMul);
   });
 
-  btnZoomIn.addEventListener("click", () => {
+  pdfZoomIn.addEventListener("click", () => {
     if (!lastBytes) return;
     userScaleMul = Math.min(3.5, userScaleMul * 1.15);
     void renderAllPages(lastBytes, fitScale * userScaleMul);
   });
 
-  btnZoomOut.addEventListener("click", () => {
+  pdfZoomOut.addEventListener("click", () => {
     if (!lastBytes) return;
     userScaleMul = Math.max(0.35, userScaleMul / 1.15);
     void renderAllPages(lastBytes, fitScale * userScaleMul);
@@ -975,9 +1088,8 @@ export function exportPortableTaskMap(args: Args) {
     const title = (nodeId === CENTER_ID) ? (DATA.projectTitle || "Project") : (taskById.get(nodeId)?.title || "Task");
     modalTitle.textContent = title;
 
-    // modal layout: one vs many
-    if (atts.length === 1) modal.classList.add("one");
-    else modal.classList.remove("one");
+    if (atts.length === 1) modalEl.classList.add("one");
+    else modalEl.classList.remove("one");
 
     fileList.innerHTML = "";
 
@@ -1003,7 +1115,6 @@ export function exportPortableTaskMap(args: Args) {
     void openPdf(atts[0]);
   };
 
-  // initial center
   centerView();
 })();
 </script>
@@ -1013,13 +1124,4 @@ export function exportPortableTaskMap(args: Args) {
   const filenameBase = slugifyTitle(data.projectTitle) || "taskmap";
   const filename = `${filenameBase}.taskmap.html`;
   downloadBlob(filename, new Blob([html], { type: "text/html;charset=utf-8" }));
-}
-
-function escapeHtml(s: string) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
