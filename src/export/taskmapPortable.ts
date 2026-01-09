@@ -117,7 +117,7 @@ function normalizeAttachment(a: any): TaskAttachment | null {
           : "";
 
   if (!dataUrl) return null;
-  return { name, dataUrl };
+  return { name, dataUrl } as any;
 }
 
 function normalizeTasks(tasks: Task[]): Task[] {
@@ -126,7 +126,7 @@ function normalizeTasks(tasks: Task[]): Task[] {
     const atts = Array.isArray(t?.attachments)
       ? (t.attachments.map(normalizeAttachment).filter(Boolean) as TaskAttachment[])
       : [];
-    return { ...t, attachments: atts };
+    return { ...t, attachments: atts } as any;
   });
 }
 
@@ -489,6 +489,36 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
   const MAXLEN_CENTER = 12;
   const MAXLEN_ROOT_AND_CHILD = 12;
 
+  // ===== Mobile detection + external open (CRITICAL FIX) =====
+  const isIOSLike = () => {
+    const ua = navigator.userAgent || "";
+    const iOS = /iPad|iPhone|iPod/i.test(ua);
+    const iPadOS = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    return iOS || iPadOS;
+  };
+  const isAndroidLike = () => /Android/i.test(navigator.userAgent || "");
+  const isMobileLike = () => isIOSLike() || isAndroidLike();
+
+  const openExternal = (url) => {
+    const s = String(url || "");
+    if (!s) return;
+    try {
+      const w = window.open(s, "_blank", "noopener,noreferrer");
+      if (!w) window.location.href = s;
+    } catch {
+      window.location.href = s;
+    }
+  };
+
+  // Keep external blob: URLs alive long enough for mobile viewers
+  const keepExternalObjectUrl = (url) => {
+    const s = String(url || "");
+    if (!s.startsWith("blob:")) return;
+    window.setTimeout(() => {
+      try { URL.revokeObjectURL(s); } catch {}
+    }, 30 * 60 * 1000);
+  };
+
   const worldEl = document.getElementById("world");
   const viewportEl = document.getElementById("viewport");
   const btnCenter = document.getElementById("btnCenter");
@@ -741,6 +771,213 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
   let suppressClickUntil = 0;
   const suppressClick = () => { suppressClickUntil = Date.now() + 250; };
 
+  // ===== PDF Overlay (native viewer via iframe on desktop; external open on mobile) =====
+  const overlay = document.getElementById("overlay");
+  const btnClose = document.getElementById("btnClose");
+  const fileList = document.getElementById("fileList");
+  const modalTitle = document.getElementById("modalTitle");
+  const modalEl = document.getElementById("modal");
+
+  const pdfInfo = document.getElementById("pdfInfo");
+  const pdfOpen = document.getElementById("pdfOpen");
+  const pdfDownload = document.getElementById("pdfDownload");
+  const pdfFrame = document.getElementById("pdfFrame");
+  const pdfMsg = document.getElementById("pdfMsg");
+
+  let currentPdfUrl = "";
+  let currentObjectUrl = "";
+
+  const showMsg = (msg) => {
+    pdfMsg.textContent = msg;
+    pdfMsg.style.display = "flex";
+  };
+  const hideMsg = () => {
+    pdfMsg.style.display = "none";
+  };
+
+  const revokeObjectUrl = () => {
+    if (currentObjectUrl) {
+      try { URL.revokeObjectURL(currentObjectUrl); } catch {}
+      currentObjectUrl = "";
+    }
+  };
+
+  const dataUrlToBytes = (dataUrl) => {
+    const s = String(dataUrl || "");
+    if (!s.startsWith("data:")) return null;
+    const comma = s.indexOf(",");
+    if (comma < 0) return null;
+    const meta = s.slice(0, comma);
+    const b64 = s.slice(comma + 1);
+    if (!/;base64/i.test(meta)) return null;
+
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    } catch (err) {
+      console.error("[OTM] base64 decode failed", err);
+      return null;
+    }
+  };
+
+  const setPdfSrc = (url, isObjectUrl=false) => {
+    revokeObjectUrl();
+    currentPdfUrl = url || "";
+    if (isObjectUrl) currentObjectUrl = url || "";
+
+    pdfFrame.src = "about:blank";
+    showMsg("Loading PDF...");
+
+    setTimeout(() => {
+      pdfFrame.src = currentPdfUrl || "about:blank";
+    }, 0);
+  };
+
+  pdfFrame.addEventListener("load", () => {
+    if (currentPdfUrl && currentPdfUrl !== "about:blank") hideMsg();
+  });
+
+  pdfOpen.addEventListener("click", () => {
+    if (!currentPdfUrl) return;
+    openExternal(currentPdfUrl);
+  });
+
+  pdfDownload.addEventListener("click", () => {
+    if (!currentPdfUrl) return;
+
+    // Mobile: download attribute is unreliable → just open in native viewer (user can "Save to Files"/share)
+    if (isMobileLike()) {
+      openExternal(currentPdfUrl);
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = currentPdfUrl;
+    a.download = (pdfInfo.textContent || "attachment.pdf").replace(/^PDF\\s*·\\s*/i, "") || "attachment.pdf";
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    try { a.click(); } catch {}
+    a.remove();
+  });
+
+  const openPdf = (att, forceExternal=false) => {
+    const du = String(att?.dataUrl || "");
+    if (!du) {
+      showMsg("No PDF data.");
+      return;
+    }
+
+    pdfInfo.textContent = att?.name || "PDF";
+
+    // Blob URLs from the editor session are NOT portable.
+    if (du.startsWith("blob:")) {
+      showMsg("This PDF was stored as a blob URL and is not portable. Please re-attach so it becomes a data URL.");
+      currentPdfUrl = "";
+      pdfFrame.src = "about:blank";
+      return;
+    }
+
+    const mobile = forceExternal || isMobileLike();
+
+    // Embedded data URL -> convert to blob URL
+    const bytes = dataUrlToBytes(du);
+    if (bytes) {
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+
+      // Mobile: DO NOT embed. Open in native viewer.
+      if (mobile) {
+        keepExternalObjectUrl(url);
+        currentPdfUrl = url;
+        pdfFrame.src = "about:blank";
+        showMsg("Opened in a new tab (native PDF viewer). Use Back to return.");
+        openExternal(url);
+        return;
+      }
+
+      // Desktop: iframe viewer
+      setPdfSrc(url, true);
+      return;
+    }
+
+    // Otherwise: treat as URL (may require internet / may be blocked by X-Frame-Options)
+    if (mobile) {
+      currentPdfUrl = du;
+      pdfFrame.src = "about:blank";
+      showMsg("Opened in a new tab (native PDF viewer).");
+      openExternal(du);
+      return;
+    }
+
+    setPdfSrc(du, false);
+    showMsg("If the PDF does not appear here, tap Open.");
+  };
+
+  const closeOverlay = () => {
+    overlay.classList.remove("open");
+    overlay.setAttribute("aria-hidden","true");
+    fileList.innerHTML = "";
+    modalEl.classList.remove("one");
+    currentPdfUrl = "";
+    revokeObjectUrl();
+    pdfFrame.src = "about:blank";
+    showMsg("Select a PDF.");
+  };
+
+  btnClose.addEventListener("click", closeOverlay);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(); });
+
+  const openFilesForNode = (nodeId) => {
+    const atts = (getAttachments(nodeId) || []).filter(a => a && a.dataUrl);
+    if (!atts || atts.length === 0) return;
+
+    // Mobile: if exactly 1 PDF -> open directly (no overlay)
+    if (isMobileLike() && atts.length === 1) {
+      openPdf(atts[0], true);
+      return;
+    }
+
+    overlay.classList.add("open");
+    overlay.setAttribute("aria-hidden","false");
+
+    const title = (nodeId === CENTER_ID) ? (DATA.projectTitle || "Project") : (taskById.get(nodeId)?.title || "Task");
+    modalTitle.textContent = title;
+
+    if (atts.length === 1) modalEl.classList.add("one");
+    else modalEl.classList.remove("one");
+
+    fileList.innerHTML = "";
+
+    if (atts.length === 1) {
+      fileList.innerHTML = '<div class="pdfMsg" style="position:static; display:block; padding:10px; pointer-events:auto;">1 PDF attached.</div>';
+      openPdf(atts[0], false);
+      return;
+    }
+
+    const info = document.createElement("div");
+    info.className = "pdfMsg";
+    info.style.position = "static";
+    info.style.display = "block";
+    info.style.padding = "10px";
+    info.style.pointerEvents = "auto";
+    info.textContent = atts.length + " PDFs attached:";
+    fileList.appendChild(info);
+
+    for (const att of atts) {
+      const b = document.createElement("button");
+      b.className = "fileItem";
+      b.textContent = att.name || "attachment.pdf";
+      b.addEventListener("click", () => openPdf(att, true));
+      fileList.appendChild(b);
+    }
+
+    openPdf(atts[0], true);
+  };
+
   for (const n of nodes) {
     const el = document.createElement("div");
     el.className = "node";
@@ -772,10 +1009,24 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
       el.appendChild(badge);
     }
 
-    el.addEventListener("click", (ev) => {
-      ev.stopPropagation();
+    const activateNode = () => {
       if (Date.now() < suppressClickUntil) return;
       openFilesForNode(n.id);
+    };
+
+    // Touch: pointerup is the most reliable “tap” signal
+    el.addEventListener("pointerup", (ev) => {
+      if (ev.pointerType !== "touch") return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      suppressClick(); // prevents the subsequent synthetic click from double-triggering
+      activateNode();
+    });
+
+    // Mouse/desktop: click remains
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      activateNode();
     });
 
     stage.appendChild(el);
@@ -935,182 +1186,6 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     suppressClick();
     applyTransform();
   }, { passive:false });
-
-  // ===== PDF Overlay (native viewer via iframe) =====
-  const overlay = document.getElementById("overlay");
-  const btnClose = document.getElementById("btnClose");
-  const fileList = document.getElementById("fileList");
-  const modalTitle = document.getElementById("modalTitle");
-  const modalEl = document.getElementById("modal");
-
-  const pdfInfo = document.getElementById("pdfInfo");
-  const pdfOpen = document.getElementById("pdfOpen");
-  const pdfDownload = document.getElementById("pdfDownload");
-  const pdfFrame = document.getElementById("pdfFrame");
-  const pdfMsg = document.getElementById("pdfMsg");
-
-  let currentPdfUrl = "";
-  let currentObjectUrl = "";
-
-  const showMsg = (msg) => {
-    pdfMsg.textContent = msg;
-    pdfMsg.style.display = "flex";
-  };
-  const hideMsg = () => {
-    pdfMsg.style.display = "none";
-  };
-
-  const revokeObjectUrl = () => {
-    if (currentObjectUrl) {
-      try { URL.revokeObjectURL(currentObjectUrl); } catch {}
-      currentObjectUrl = "";
-    }
-  };
-
-  const dataUrlToBytes = (dataUrl) => {
-    const s = String(dataUrl || "");
-    if (!s.startsWith("data:")) return null;
-    const comma = s.indexOf(",");
-    if (comma < 0) return null;
-    const meta = s.slice(0, comma);
-    const b64 = s.slice(comma + 1);
-    if (!/;base64/i.test(meta)) return null;
-
-    try {
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-      return bytes;
-    } catch (err) {
-      console.error("[OTM] base64 decode failed", err);
-      return null;
-    }
-  };
-
-  const setPdfSrc = (url, isObjectUrl=false) => {
-    revokeObjectUrl();
-    currentPdfUrl = url || "";
-    if (isObjectUrl) currentObjectUrl = url || "";
-
-    pdfFrame.src = "about:blank";
-    showMsg("Loading PDF...");
-
-    // set after blank to force refresh
-    setTimeout(() => {
-      pdfFrame.src = currentPdfUrl || "about:blank";
-    }, 0);
-  };
-
-  pdfFrame.addEventListener("load", () => {
-    if (currentPdfUrl && currentPdfUrl !== "about:blank") hideMsg();
-  });
-
-  pdfOpen.addEventListener("click", () => {
-    if (!currentPdfUrl) return;
-    window.open(currentPdfUrl, "_blank", "noopener,noreferrer");
-  });
-
-  pdfDownload.addEventListener("click", () => {
-    if (!currentPdfUrl) return;
-    const a = document.createElement("a");
-    a.href = currentPdfUrl;
-    a.download = (pdfInfo.textContent || "attachment.pdf").replace(/^PDF\\s*·\\s*/i, "") || "attachment.pdf";
-    a.rel = "noopener";
-    a.style.display = "none";
-    document.body.appendChild(a);
-    try { a.click(); } catch {}
-    a.remove();
-  });
-
-  const openPdf = async (att) => {
-    const du = String(att?.dataUrl || "");
-    if (!du) {
-      showMsg("No PDF data.");
-      return;
-    }
-
-    pdfInfo.textContent = att?.name || "PDF";
-
-    // Blob URLs from the editor session are NOT portable.
-    if (du.startsWith("blob:")) {
-      showMsg("This PDF was stored as a blob URL and is not portable. Please re-attach so it becomes a data URL.");
-      currentPdfUrl = "";
-      pdfFrame.src = "about:blank";
-      return;
-    }
-
-    // Best case: embedded data URL -> convert to blob URL for reliable viewing (esp. mobile)
-    const bytes = dataUrlToBytes(du);
-    if (bytes) {
-      const blob = new Blob([bytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      setPdfSrc(url, true);
-      return;
-    }
-
-    // Otherwise: treat as URL (may require internet / may be blocked by X-Frame-Options)
-    // We still try to open in iframe; user can always use "Open".
-    setPdfSrc(du, false);
-
-    // Show a helpful hint for tricky cases
-    showMsg("If the PDF does not appear here, tap Open.");
-  };
-
-  const closeOverlay = () => {
-    overlay.classList.remove("open");
-    overlay.setAttribute("aria-hidden","true");
-    fileList.innerHTML = "";
-    modalEl.classList.remove("one");
-    currentPdfUrl = "";
-    revokeObjectUrl();
-    pdfFrame.src = "about:blank";
-    showMsg("Select a PDF.");
-  };
-
-  btnClose.addEventListener("click", closeOverlay);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(); });
-
-  const openFilesForNode = (nodeId) => {
-    const atts = (getAttachments(nodeId) || []).filter(a => a && a.dataUrl);
-    if (!atts || atts.length === 0) return;
-
-    overlay.classList.add("open");
-    overlay.setAttribute("aria-hidden","false");
-
-    const title = (nodeId === CENTER_ID) ? (DATA.projectTitle || "Project") : (taskById.get(nodeId)?.title || "Task");
-    modalTitle.textContent = title;
-
-    if (atts.length === 1) modalEl.classList.add("one");
-    else modalEl.classList.remove("one");
-
-    fileList.innerHTML = "";
-
-    if (atts.length === 1) {
-      fileList.innerHTML = '<div class="pdfMsg" style="position:static; display:block; padding:10px; pointer-events:auto;">1 PDF attached.</div>';
-      void openPdf(atts[0]);
-      return;
-    }
-
-    const info = document.createElement("div");
-    info.className = "pdfMsg";
-    info.style.position = "static";
-    info.style.display = "block";
-    info.style.padding = "10px";
-    info.style.pointerEvents = "auto";
-    info.textContent = atts.length + " PDFs attached:";
-    fileList.appendChild(info);
-
-    for (const att of atts) {
-      const b = document.createElement("button");
-      b.className = "fileItem";
-      b.textContent = att.name || "attachment.pdf";
-      b.addEventListener("click", () => void openPdf(att));
-      fileList.appendChild(b);
-    }
-
-    void openPdf(atts[0]);
-  };
 
   centerView();
 })();
