@@ -32,77 +32,41 @@ function isIOSLike(): boolean {
   return iOS || iPadOS;
 }
 
-async function trySaveWithFilePicker(filename: string, blob: Blob): Promise<boolean> {
-  const w = window as any;
-  if (typeof w.showSaveFilePicker !== "function") return false;
-
-  try {
-    const handle = await w.showSaveFilePicker({
-      suggestedName: filename,
-      types: [
-        {
-          description: "HTML",
-          accept: { "text/html": [".html"] },
-        },
-      ],
-    });
-
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function tryShareFile(filename: string, blob: Blob): Promise<boolean> {
-  const nav = navigator as any;
-  if (!nav?.share) return false;
-
-  try {
-    const file = new File([blob], filename, { type: blob.type || "text/html" });
-    if (typeof nav.canShare === "function" && !nav.canShare({ files: [file] })) return false;
-
-    await nav.share({
-      files: [file],
-      title: filename,
-    });
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
+// IMPORTANT: "Instant download" only.
+// No File Picker, no Share Sheet, no "Save as" UI.
+// Behavior should match PNG/JPG downloads.
 function downloadBlob(filename: string, blob: Blob) {
-  void (async () => {
-    // 1) Best: File picker (Chromium, teils Android)
-    if (await trySaveWithFilePicker(filename, blob)) return;
+  const url = URL.createObjectURL(blob);
 
-    // 2) Mobile/iOS Best: Share Sheet ("Save to Files")
-    if (await tryShareFile(filename, blob)) return;
+  // Most browsers: direct download
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
 
-    // 3) Fallback: classic download
-    const url = URL.createObjectURL(blob);
-
-    // iOS Safari blockt a.download oft → öffne stattdessen in neuem Tab
-    if (isIOSLike()) {
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      return;
-    }
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.rel = "noopener";
-    a.style.display = "none";
-    document.body.appendChild(a);
+  try {
     a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 15_000);
-  })();
+  } catch {
+    // ignore
+  }
+
+  a.remove();
+
+  // iOS Safari can ignore a.download. We still must not show any picker.
+  // Fallback: open the file URL in a new tab so the user can save/share from there.
+  if (isIOSLike()) {
+    try {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      // ignore
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return;
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function normalizeAttachment(a: any): TaskAttachment | null {
@@ -995,7 +959,6 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     pdfFrame.src = "about:blank";
     showMsg("Loading PDF...");
 
-    // set after blank to force refresh
     setTimeout(() => {
       pdfFrame.src = currentPdfUrl || "about:blank";
     }, 0);
@@ -1031,7 +994,6 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
 
     pdfInfo.textContent = att?.name || "PDF";
 
-    // Blob URLs from the editor session are NOT portable.
     if (du.startsWith("blob:")) {
       showMsg("This PDF was stored as a blob URL and is not portable. Please re-attach so it becomes a data URL.");
       currentPdfUrl = "";
@@ -1039,7 +1001,6 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
       return;
     }
 
-    // Best case: embedded data URL -> convert to blob URL for reliable viewing (esp. mobile)
     const bytes = dataUrlToBytes(du);
     if (bytes) {
       const blob = new Blob([bytes], { type: "application/pdf" });
@@ -1048,11 +1009,7 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
       return;
     }
 
-    // Otherwise: treat as URL (may require internet / may be blocked by X-Frame-Options)
-    // We still try to open in iframe; user can always use "Open".
     setPdfSrc(du, false);
-
-    // Show a helpful hint for tricky cases
     showMsg("If the PDF does not appear here, tap Open.");
   };
 
@@ -1114,11 +1071,12 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
 
   centerView();
 })();
+
 </script>
 </body>
 </html>`;
 
   const filenameBase = slugifyTitle(data.projectTitle) || "taskmap";
-  const filename = `${filenameBase}.taskmap.html`;
+  const filename = \`\${filenameBase}.taskmap.html\`;
   downloadBlob(filename, new Blob([html], { type: "text/html;charset=utf-8" }));
 }
