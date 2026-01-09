@@ -37,7 +37,40 @@ function downloadBlob(filename: string, blob: Blob) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
+function normalizeAttachment(a: any): TaskAttachment | null {
+  const name = String(a?.name ?? "attachment.pdf");
+  const dataUrl =
+    typeof a?.dataUrl === "string"
+      ? a.dataUrl
+      : typeof a?.url === "string"
+        ? a.url
+        : typeof a?.href === "string"
+          ? a.href
+          : "";
+
+  if (!dataUrl) return null;
+  return { name, dataUrl };
+}
+
+function normalizeTasks(tasks: Task[]): Task[] {
+  const src = Array.isArray(tasks) ? tasks : [];
+  return src.map((t: any) => {
+    const atts = Array.isArray(t?.attachments)
+      ? (t.attachments.map(normalizeAttachment).filter(Boolean) as TaskAttachment[])
+      : [];
+    return { ...t, attachments: atts };
+  });
+}
+
+function normalizeCenterAttachments(atts?: TaskAttachment[]): TaskAttachment[] {
+  const src = Array.isArray(atts) ? atts : [];
+  return (src as any[]).map(normalizeAttachment).filter(Boolean) as TaskAttachment[];
+}
+
 export function exportPortableTaskMap(args: Args) {
+  const safeTasks = normalizeTasks(args.tasks ?? []);
+  const safeCenterAttachments = normalizeCenterAttachments(args.centerAttachments);
+
   const data = {
     v: 1,
     app: "OpenTaskMap",
@@ -48,11 +81,11 @@ export function exportPortableTaskMap(args: Args) {
 
     // meta aus MapView (falls nicht vorhanden: defaults)
     centerDone: !!args.centerDone,
-    centerAttachments: args.centerAttachments ?? [],
+    centerAttachments: safeCenterAttachments,
     branchEdgeColorOverride: args.branchEdgeColorOverride ?? {},
     edgeColorOverride: args.edgeColorOverride ?? {},
 
-    tasks: args.tasks ?? [],
+    tasks: safeTasks,
     nodeOffset: args.nodeOffset ?? {},
     branchColorOverride: args.branchColorOverride ?? {},
   };
@@ -64,7 +97,7 @@ export function exportPortableTaskMap(args: Args) {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no" />
 <title>${escapeHtml(data.projectTitle)} – OpenTaskMap</title>
 <style>
   :root{
@@ -76,12 +109,26 @@ export function exportPortableTaskMap(args: Args) {
     --gold: #fbbf24;
     --shadow: 0 12px 36px rgba(0,0,0,0.18);
   }
-  html,body{height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background: var(--bg); color: var(--text); overflow:hidden;}
+  html,body{
+    height:100%;
+    margin:0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    background: var(--bg);
+    color: var(--text);
+    overflow:hidden;
+    overscroll-behavior: none;
+  }
+
   .topbar{
-    position: fixed; left: 14px; top: 14px; right: 14px;
-    display:flex; align-items:center; justify-content:space-between;
+    position: fixed;
+    left: calc(14px + env(safe-area-inset-left));
+    right: calc(14px + env(safe-area-inset-right));
+    top: calc(14px + env(safe-area-inset-top));
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
     gap: 12px;
-    padding: 10px 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px;
     border-radius: 14px;
     background: var(--panel);
     border: 1px solid var(--panelBorder);
@@ -100,13 +147,16 @@ export function exportPortableTaskMap(args: Args) {
     font-weight:800; font-size:12px; cursor:pointer;
   }
   .btn:hover{background: rgba(255,255,255,0.10);}
+
   .viewport{
-    position: absolute; inset: 0;
+    position: absolute;
+    inset: 0;
     touch-action: none;
   }
   .world{
     position:absolute; left:0; top:0;
     transform-origin: 0 0;
+    touch-action: none;
   }
   .map-stage{
     position:absolute; left:0; top:0;
@@ -114,10 +164,12 @@ export function exportPortableTaskMap(args: Args) {
     border-radius: 18px;
     box-shadow: var(--shadow);
     overflow:hidden;
+    touch-action: none;
   }
   .edges{
     position:absolute; inset:0;
     overflow: visible;
+    pointer-events: none;
   }
   .node{
     position:absolute;
@@ -132,12 +184,14 @@ export function exportPortableTaskMap(args: Args) {
     color: #fff;
     user-select:none;
     cursor: pointer;
+    touch-action: none;
   }
   .node[data-done="true"]::after{
     content:"";
     position:absolute; inset:0;
     border-radius: 999px;
     background: rgba(255,255,255,0.28);
+    pointer-events: none;
   }
   .node .text{position:relative; z-index:1; line-height:1.1; font-size:14px; padding: 0 10px;}
   .node .text span{display:block; white-space:nowrap;}
@@ -148,9 +202,11 @@ export function exportPortableTaskMap(args: Args) {
     display:flex; align-items:center; justify-content:center;
     font-weight:900;
     box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+    pointer-events: none;
   }
   .badge.done{right: -6px; top: -6px; background:#22c55e;}
   .badge.done span{color:#fff; transform: translateY(-0.5px);}
+
   .overlay{
     position: fixed; inset:0;
     background: rgba(2,6,23,0.72);
@@ -191,6 +247,7 @@ export function exportPortableTaskMap(args: Args) {
     border-right: 1px solid rgba(255,255,255,0.10);
     padding: 10px;
     overflow:auto;
+    -webkit-overflow-scrolling: touch;
   }
   .fileItem{
     width:100%;
@@ -233,7 +290,7 @@ export function exportPortableTaskMap(args: Args) {
       <span class="name" id="tTitle"></span>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
-      <div class="hint">Drag to pan · Wheel to zoom · Click a node to open PDFs</div>
+      <div class="hint">Drag to pan · Wheel/Pinch to zoom · Click a node to open PDFs</div>
       <button class="btn" id="btnCenter">Center</button>
     </div>
   </div>
@@ -261,6 +318,12 @@ export function exportPortableTaskMap(args: Args) {
 
 <script>
 (() => {
+  // iOS gesture zoom block (zusätzlich zu touch-action)
+  const prevent = (e) => e.preventDefault();
+  document.addEventListener("gesturestart", prevent, { passive:false });
+  document.addEventListener("gesturechange", prevent, { passive:false });
+  document.addEventListener("gestureend", prevent, { passive:false });
+
   const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent);
 
   const CENTER_ID = "__CENTER__";
@@ -286,6 +349,7 @@ export function exportPortableTaskMap(args: Args) {
   const worldEl = document.getElementById("world");
   const viewportEl = document.getElementById("viewport");
   const btnCenter = document.getElementById("btnCenter");
+  const topbarEl = document.querySelector(".topbar");
 
   document.getElementById("tTitle").textContent = (DATA.projectTitle || "Project");
 
@@ -426,7 +490,6 @@ export function exportPortableTaskMap(args: Args) {
     if (id === CENTER_ID) return DATA.centerColor || "#020617";
     const t = taskById.get(id);
     if (!t) return "#64748b";
-    // branch-farbe = rootfarbe, node-farbe nur wenn gesetzt (wie MapView)
     let cur = t;
     while (cur && cur.parentId) cur = taskById.get(cur.parentId);
     const rootId = cur ? cur.id : t.id;
@@ -461,8 +524,6 @@ export function exportPortableTaskMap(args: Args) {
 
   for (const root of roots) {
     pushNode(root.id, "root", R_ROOT);
-
-    // center -> root edge
     const c = pos[CENTER_ID];
     const rP = pos[root.id];
     const seg = segmentBetweenCircles(c.x,c.y,R_CENTER,rP.x,rP.y,R_ROOT);
@@ -474,7 +535,6 @@ export function exportPortableTaskMap(args: Args) {
     });
   }
 
-  // traverse all relations for edges
   const addEdgesRec = (parentId, rootId) => {
     const kids = childrenByParent.get(parentId) || [];
     if (!kids.length) return;
@@ -540,6 +600,10 @@ export function exportPortableTaskMap(args: Args) {
 
   stage.appendChild(svg);
 
+  // click suppression after pan/pinch
+  let suppressClickUntil = 0;
+  const suppressClick = () => { suppressClickUntil = Date.now() + 250; };
+
   for (const n of nodes) {
     const el = document.createElement("div");
     el.className = "node";
@@ -573,6 +637,7 @@ export function exportPortableTaskMap(args: Args) {
 
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      if (Date.now() < suppressClickUntil) return;
       openFilesForNode(n.id);
     });
 
@@ -582,62 +647,159 @@ export function exportPortableTaskMap(args: Args) {
   worldEl.innerHTML = "";
   worldEl.appendChild(stage);
 
-  // pan/zoom
+  // pan/zoom (mouse + touch + pinch)
   let panX = 0, panY = 0, z = 1;
+
+  const clampZ = (v) => Math.max(MIN_Z, Math.min(MAX_Z, v));
+
   const applyTransform = () => {
     worldEl.style.transform = \`translate(\${panX}px,\${panY}px) scale(\${z})\`;
   };
 
   const centerView = () => {
-    // center stage on screen
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const topbarH = 74;
-    const usableH = vh - topbarH - 20;
 
-    z = Math.min(1, Math.max(MIN_Z, Math.min(MAX_Z, Math.min((vw*0.90)/width, (usableH*0.92)/height))));
+    const tb = topbarEl ? topbarEl.getBoundingClientRect() : { bottom: 74 };
+    const topbarBottom = tb.bottom + 10; // small spacing
+    const usableH = Math.max(1, vh - topbarBottom - 14);
+
+    z = clampZ(Math.min(1, Math.min((vw*0.90)/width, (usableH*0.92)/height)));
     panX = (vw/2) - (width*z)/2;
-    panY = (topbarH + (usableH/2)) - (height*z)/2;
+    panY = (topbarBottom + (usableH/2)) - (height*z)/2;
+
     applyTransform();
   };
 
   btnCenter.addEventListener("click", centerView);
   window.addEventListener("resize", centerView);
 
-  let dragging = false;
-  let lastX = 0, lastY = 0;
+  // context menu off (for right-drag)
+  viewportEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // pointers
+  const pointers = new Map(); // id -> {x,y}
+  let panStart = null;
+  let pinchStart = null;
+
+  const isOnNode = (e) => !!(e.target && e.target.closest && e.target.closest(".node"));
+
+  const startPinchIfPossible = () => {
+    if (pointers.size !== 2) return;
+    const ids = Array.from(pointers.keys());
+    const p1 = pointers.get(ids[0]);
+    const p2 = pointers.get(ids[1]);
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+
+    // capture both pointers (so moves bleiben stabil)
+    try { viewportEl.setPointerCapture?.(ids[0]); } catch {}
+    try { viewportEl.setPointerCapture?.(ids[1]); } catch {}
+
+    pinchStart = {
+      dist,
+      z0: z,
+      worldX: (midX - panX) / z,
+      worldY: (midY - panY) / z,
+      midX,
+      midY,
+    };
+    panStart = null;
+  };
 
   viewportEl.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    viewportEl.setPointerCapture?.(e.pointerId);
+    const overlayOpen = document.getElementById("overlay").classList.contains("open");
+    if (overlayOpen) return;
+
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Wenn wir jetzt 2 Pointer haben: pinch starten (auch wenn einer auf Node begann)
+    if (pointers.size === 2) {
+      startPinchIfPossible();
+      return;
+    }
+
+    // Pan nur starten, wenn NICHT auf Node begonnen wurde
+    if (!isOnNode(e)) {
+      try { viewportEl.setPointerCapture?.(e.pointerId); } catch {}
+      panStart = { id: e.pointerId, x: e.clientX, y: e.clientY, panX0: panX, panY0: panY };
+    } else {
+      panStart = null;
+    }
   });
 
   viewportEl.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    panX += dx;
-    panY += dy;
-    applyTransform();
+    if (!pointers.has(e.pointerId)) return;
+
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const overlayOpen = document.getElementById("overlay").classList.contains("open");
+    if (overlayOpen) return;
+
+    if (pinchStart && pointers.size >= 2) {
+      const ids = Array.from(pointers.keys()).slice(0, 2);
+      const p1 = pointers.get(ids[0]);
+      const p2 = pointers.get(ids[1]);
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+
+      const scale = dist / (pinchStart.dist || 1);
+      z = clampZ(pinchStart.z0 * scale);
+
+      // keep world point under midpoint stable
+      panX = midX - pinchStart.worldX * z;
+      panY = midY - pinchStart.worldY * z;
+
+      suppressClick();
+      applyTransform();
+      return;
+    }
+
+    if (panStart && panStart.id === e.pointerId) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      if (Math.hypot(dx, dy) > 3) suppressClick();
+      panX = panStart.panX0 + dx;
+      panY = panStart.panY0 + dy;
+      applyTransform();
+    }
   });
 
-  viewportEl.addEventListener("pointerup", () => { dragging = false; });
-  viewportEl.addEventListener("pointercancel", () => { dragging = false; });
+  const endPointer = (e) => {
+    if (pointers.has(e.pointerId)) pointers.delete(e.pointerId);
 
+    try { viewportEl.releasePointerCapture?.(e.pointerId); } catch {}
+
+    if (pointers.size < 2) pinchStart = null;
+
+    if (pointers.size === 1) {
+      // if one finger remains, allow continuing pan (even if it started on node during pinch)
+      const [id, p] = pointers.entries().next().value;
+      panStart = { id, x: p.x, y: p.y, panX0: panX, panY0: panY };
+    } else {
+      panStart = null;
+    }
+  };
+
+  viewportEl.addEventListener("pointerup", endPointer);
+  viewportEl.addEventListener("pointercancel", endPointer);
+
+  // wheel zoom
   viewportEl.addEventListener("wheel", (e) => {
     e.preventDefault();
+
+    const overlayOpen = document.getElementById("overlay").classList.contains("open");
+    if (overlayOpen) return;
+
     const rect = viewportEl.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
     const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
-    const next = Math.max(MIN_Z, Math.min(MAX_Z, z * factor));
+    const next = clampZ(z * factor);
 
-    // zoom at cursor
     const wx = (cx - panX) / z;
     const wy = (cy - panY) / z;
 
@@ -645,6 +807,7 @@ export function exportPortableTaskMap(args: Args) {
     panX = cx - wx * z;
     panY = cy - wy * z;
 
+    suppressClick();
     applyTransform();
   }, { passive:false });
 
@@ -657,17 +820,7 @@ export function exportPortableTaskMap(args: Args) {
 
   let currentObjectUrl = null;
 
-  const dataUrlToBlob = (dataUrl) => {
-    const parts = String(dataUrl||"").split(",");
-    const meta = parts[0] || "";
-    const b64 = parts[1] || "";
-    const mimeMatch = meta.match(/data:([^;]+);base64/i);
-    const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-    return new Blob([bytes], { type: mime });
-  };
+  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent);
 
   const closeOverlay = () => {
     overlay.classList.remove("open");
@@ -684,24 +837,45 @@ export function exportPortableTaskMap(args: Args) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(); });
 
-  const openPdf = (att) => {
+  const openPdf = async (att) => {
     if (currentObjectUrl) {
       URL.revokeObjectURL(currentObjectUrl);
       currentObjectUrl = null;
     }
+
+    const du = String(att?.dataUrl || "");
+    if (!du) {
+      pdfFrame.removeAttribute("src");
+      return;
+    }
+
+    // Wenn jemand aus Versehen blob: URLs exportiert hat -> die sind in einer neuen Datei nicht mehr gültig
+    if (du.startsWith("blob:")) {
+      pdfFrame.removeAttribute("src");
+      fileList.innerHTML = '<div class="empty">This attachment was stored as a blob URL and cannot be embedded. Please re-attach the PDF so it becomes a data URL.</div>';
+      return;
+    }
+
+    // iOS: data: direkt ist oft am stabilsten im iframe
+    if (isIOS()) {
+      pdfFrame.src = du;
+      return;
+    }
+
+    // sonst: dataUrl -> Blob -> ObjectURL (stabiler/performanter)
     try {
-      const blob = dataUrlToBlob(att.dataUrl);
+      const res = await fetch(du);
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       currentObjectUrl = url;
       pdfFrame.src = url;
     } catch {
-      // fallback: direct dataUrl
-      pdfFrame.src = att.dataUrl;
+      pdfFrame.src = du;
     }
   };
 
   const openFilesForNode = (nodeId) => {
-    const atts = getAttachments(nodeId);
+    const atts = getAttachments(nodeId).filter(a => a && a.dataUrl);
     if (!atts || atts.length === 0) return;
 
     overlay.classList.add("open");
@@ -714,7 +888,7 @@ export function exportPortableTaskMap(args: Args) {
 
     if (atts.length === 1) {
       fileList.innerHTML = '<div class="empty">1 PDF attached.</div>';
-      openPdf(atts[0]);
+      void openPdf(atts[0]);
       return;
     }
 
@@ -727,11 +901,11 @@ export function exportPortableTaskMap(args: Args) {
       const b = document.createElement("button");
       b.className = "fileItem";
       b.textContent = att.name || "attachment.pdf";
-      b.addEventListener("click", () => openPdf(att));
+      b.addEventListener("click", () => void openPdf(att));
       fileList.appendChild(b);
     }
 
-    openPdf(atts[0]);
+    void openPdf(atts[0]);
   };
 
   // initial center
