@@ -24,21 +24,13 @@ const slugifyTitle = (t: string) =>
     .replace(/^[-_]+|[-_]+$/g, "")
     .toLowerCase();
 
-function isIOSLike(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent || "";
-  const iOS = /iPad|iPhone|iPod/i.test(ua);
-  const iPadOS = navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1;
-  return iOS || iPadOS;
-}
-
-// IMPORTANT: "Instant download" only.
-// No File Picker, no Share Sheet, no "Save as" UI.
-// Behavior should match PNG/JPG downloads.
+/**
+ * Instant download (no picker, no share, no "save as").
+ * Same behavior style as PNG/JPG: create blob URL + <a download>.
+ */
 function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
 
-  // Most browsers: direct download
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
@@ -53,19 +45,6 @@ function downloadBlob(filename: string, blob: Blob) {
   }
 
   a.remove();
-
-  // iOS Safari can ignore a.download. We still must not show any picker.
-  // Fallback: open the file URL in a new tab so the user can save/share from there.
-  if (isIOSLike()) {
-    try {
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch {
-      // ignore
-    }
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    return;
-  }
-
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
@@ -1071,12 +1050,12 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
 
   centerView();
 })();
-
 </script>
 </body>
 </html>`;
 
   const filenameBase = slugifyTitle(data.projectTitle) || "taskmap";
-  const filename = \`\${filenameBase}.taskmap.html\`;
+  const filename = `${filenameBase}.taskmap.html`;
+
   downloadBlob(filename, new Blob([html], { type: "text/html;charset=utf-8" }));
 }
