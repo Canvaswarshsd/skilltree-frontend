@@ -1,6 +1,9 @@
 // frontend/src/export/taskmapPortable.ts
 import type { Task, TaskAttachment } from "../MapView";
 
+// PDF.js als RAW-String inline in die Export-HTML einbetten (damit offline + portable)
+import pdfjsRaw from "pdfjs-dist/legacy/build/pdf.min.js?raw";
+
 type Meta = {
   centerDone?: boolean;
   centerAttachments?: TaskAttachment[];
@@ -67,6 +70,11 @@ function normalizeCenterAttachments(atts?: TaskAttachment[]): TaskAttachment[] {
   return (src as any[]).map(normalizeAttachment).filter(Boolean) as TaskAttachment[];
 }
 
+function escapeScriptContent(s: string) {
+  // verhindert </script> Termination innerhalb inline <script>
+  return String(s ?? "").replace(/<\/script/gi, "<\\/script");
+}
+
 export function exportPortableTaskMap(args: Args) {
   const safeTasks = normalizeTasks(args.tasks ?? []);
   const safeCenterAttachments = normalizeCenterAttachments(args.centerAttachments);
@@ -79,7 +87,6 @@ export function exportPortableTaskMap(args: Args) {
     projectTitle: args.projectTitle || "Project",
     centerColor: args.centerColor || "#020617",
 
-    // meta aus MapView (falls nicht vorhanden: defaults)
     centerDone: !!args.centerDone,
     centerAttachments: safeCenterAttachments,
     branchEdgeColorOverride: args.branchEdgeColorOverride ?? {},
@@ -90,7 +97,6 @@ export function exportPortableTaskMap(args: Args) {
     branchColorOverride: args.branchColorOverride ?? {},
   };
 
-  // sicher in <script> einbetten
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
 
   const html = `<!doctype html>
@@ -242,8 +248,10 @@ export function exportPortableTaskMap(args: Args) {
     display:flex;
     min-height:0;
   }
+
+  /* ✅ Sidebar schmaler */
   .fileList{
-    width: 280px;
+    width: 200px;
     border-right: 1px solid rgba(255,255,255,0.10);
     padding: 10px;
     overflow:auto;
@@ -264,22 +272,79 @@ export function exportPortableTaskMap(args: Args) {
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .fileItem:hover{background: rgba(255,255,255,0.10);}
+
   .viewer{
     flex:1;
     min-width:0;
     background: #0b1220;
     position: relative;
+    overflow:hidden;
   }
-  .viewer iframe{
-    position:absolute; inset:0;
-    width:100%; height:100%;
-    border:0;
-    background:#0b1220;
+
+  /* PDF.js UI */
+  .pdfBar{
+    position:absolute; left:0; right:0; top:0;
+    height: 44px;
+    display:flex; align-items:center; justify-content:space-between;
+    gap: 10px;
+    padding: 0 10px;
+    background: rgba(2,6,23,0.72);
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+    z-index: 2;
+    backdrop-filter: blur(10px);
   }
-  .empty{
+  .pdfInfo{
+    font-weight:900; font-size:12px;
+    color: rgba(255,255,255,0.85);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    max-width: 55%;
+  }
+  .btnSm{
+    appearance:none;
+    border:1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.92);
+    padding: 6px 8px;
+    border-radius: 10px;
+    font-weight:900;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .btnSm:hover{background: rgba(255,255,255,0.10);}
+
+  .pdfScroll{
+    position:absolute; left:0; right:0; top:44px; bottom:0;
+    overflow:auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px;
+  }
+  canvas.pdfPage{
+    display:block;
+    margin: 0 auto 12px auto;
+    background:#fff;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+  }
+  .pdfMsg{
     color: rgba(255,255,255,0.70);
     font-size: 12px;
     padding: 14px;
+  }
+
+  /* ✅ Wenn genau 1 PDF: linke Liste komplett weg */
+  .modal.one .fileList{ display:none; }
+  .modal.one .modalBody{ display:block; }
+  .modal.one .viewer{ position:relative; width:100%; height:100%; }
+
+  /* ✅ Mobile: Liste oben statt links */
+  @media (max-width: 820px){
+    .modalBody{ flex-direction:column; }
+    .fileList{
+      width:auto;
+      border-right:none;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      max-height: 120px;
+    }
   }
 </style>
 </head>
@@ -290,7 +355,7 @@ export function exportPortableTaskMap(args: Args) {
       <span class="name" id="tTitle"></span>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
-      <div class="hint">Drag to pan · Wheel/Pinch to zoom · Click a node to open PDFs</div>
+      <div class="hint">Drag to pan · Wheel to zoom · Click a node to open PDFs</div>
       <button class="btn" id="btnCenter">Center</button>
     </div>
   </div>
@@ -300,7 +365,7 @@ export function exportPortableTaskMap(args: Args) {
   </div>
 
   <div class="overlay" id="overlay" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal" id="modal" role="dialog" aria-modal="true">
       <div class="modalHeader">
         <div class="modalTitle" id="modalTitle">Files</div>
         <button class="btn" id="btnClose">Close</button>
@@ -308,7 +373,15 @@ export function exportPortableTaskMap(args: Args) {
       <div class="modalBody">
         <div class="fileList" id="fileList"></div>
         <div class="viewer" id="viewer">
-          <iframe id="pdfFrame" title="PDF Viewer"></iframe>
+          <div class="pdfBar">
+            <div class="pdfInfo" id="pdfInfo">PDF</div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btnSm" id="pdfFit">Fit</button>
+              <button class="btnSm" id="pdfZoomOut">−</button>
+              <button class="btnSm" id="pdfZoomIn">+</button>
+            </div>
+          </div>
+          <div class="pdfScroll" id="pdfScroll"></div>
         </div>
       </div>
     </div>
@@ -316,14 +389,11 @@ export function exportPortableTaskMap(args: Args) {
 
   <script id="__OTM_DATA__" type="application/json">${json}</script>
 
+  <!-- PDF.js inline (offline + portable) -->
+  <script>${escapeScriptContent(pdfjsRaw)}</script>
+
 <script>
 (() => {
-  // iOS gesture zoom block (zusätzlich zu touch-action)
-  const prevent = (e) => e.preventDefault();
-  document.addEventListener("gesturestart", prevent, { passive:false });
-  document.addEventListener("gesturechange", prevent, { passive:false });
-  document.addEventListener("gestureend", prevent, { passive:false });
-
   const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent);
 
   const CENTER_ID = "__CENTER__";
@@ -349,7 +419,6 @@ export function exportPortableTaskMap(args: Args) {
   const worldEl = document.getElementById("world");
   const viewportEl = document.getElementById("viewport");
   const btnCenter = document.getElementById("btnCenter");
-  const topbarEl = document.querySelector(".topbar");
 
   document.getElementById("tTitle").textContent = (DATA.projectTitle || "Project");
 
@@ -524,6 +593,7 @@ export function exportPortableTaskMap(args: Args) {
 
   for (const root of roots) {
     pushNode(root.id, "root", R_ROOT);
+
     const c = pos[CENTER_ID];
     const rP = pos[root.id];
     const seg = segmentBetweenCircles(c.x,c.y,R_CENTER,rP.x,rP.y,R_ROOT);
@@ -600,10 +670,6 @@ export function exportPortableTaskMap(args: Args) {
 
   stage.appendChild(svg);
 
-  // click suppression after pan/pinch
-  let suppressClickUntil = 0;
-  const suppressClick = () => { suppressClickUntil = Date.now() + 250; };
-
   for (const n of nodes) {
     const el = document.createElement("div");
     el.className = "node";
@@ -637,7 +703,6 @@ export function exportPortableTaskMap(args: Args) {
 
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      if (Date.now() < suppressClickUntil) return;
       openFilesForNode(n.id);
     });
 
@@ -647,11 +712,8 @@ export function exportPortableTaskMap(args: Args) {
   worldEl.innerHTML = "";
   worldEl.appendChild(stage);
 
-  // pan/zoom (mouse + touch + pinch)
+  // pan/zoom (wie vorher: drag + wheel)
   let panX = 0, panY = 0, z = 1;
-
-  const clampZ = (v) => Math.max(MIN_Z, Math.min(MAX_Z, v));
-
   const applyTransform = () => {
     worldEl.style.transform = \`translate(\${panX}px,\${panY}px) scale(\${z})\`;
   };
@@ -659,146 +721,50 @@ export function exportPortableTaskMap(args: Args) {
   const centerView = () => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const topbarH = 74;
+    const usableH = vh - topbarH - 20;
 
-    const tb = topbarEl ? topbarEl.getBoundingClientRect() : { bottom: 74 };
-    const topbarBottom = tb.bottom + 10; // small spacing
-    const usableH = Math.max(1, vh - topbarBottom - 14);
-
-    z = clampZ(Math.min(1, Math.min((vw*0.90)/width, (usableH*0.92)/height)));
+    z = Math.min(1, Math.max(MIN_Z, Math.min(MAX_Z, Math.min((vw*0.90)/width, (usableH*0.92)/height))));
     panX = (vw/2) - (width*z)/2;
-    panY = (topbarBottom + (usableH/2)) - (height*z)/2;
-
+    panY = (topbarH + (usableH/2)) - (height*z)/2;
     applyTransform();
   };
 
   btnCenter.addEventListener("click", centerView);
   window.addEventListener("resize", centerView);
 
-  // context menu off (for right-drag)
-  viewportEl.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  // pointers
-  const pointers = new Map(); // id -> {x,y}
-  let panStart = null;
-  let pinchStart = null;
-
-  const isOnNode = (e) => !!(e.target && e.target.closest && e.target.closest(".node"));
-
-  const startPinchIfPossible = () => {
-    if (pointers.size !== 2) return;
-    const ids = Array.from(pointers.keys());
-    const p1 = pointers.get(ids[0]);
-    const p2 = pointers.get(ids[1]);
-    const midX = (p1.x + p2.x) / 2;
-    const midY = (p1.y + p2.y) / 2;
-    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
-
-    // capture both pointers (so moves bleiben stabil)
-    try { viewportEl.setPointerCapture?.(ids[0]); } catch {}
-    try { viewportEl.setPointerCapture?.(ids[1]); } catch {}
-
-    pinchStart = {
-      dist,
-      z0: z,
-      worldX: (midX - panX) / z,
-      worldY: (midY - panY) / z,
-      midX,
-      midY,
-    };
-    panStart = null;
-  };
+  let dragging = false;
+  let lastX = 0, lastY = 0;
 
   viewportEl.addEventListener("pointerdown", (e) => {
-    const overlayOpen = document.getElementById("overlay").classList.contains("open");
-    if (overlayOpen) return;
-
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    // Wenn wir jetzt 2 Pointer haben: pinch starten (auch wenn einer auf Node begann)
-    if (pointers.size === 2) {
-      startPinchIfPossible();
-      return;
-    }
-
-    // Pan nur starten, wenn NICHT auf Node begonnen wurde
-    if (!isOnNode(e)) {
-      try { viewportEl.setPointerCapture?.(e.pointerId); } catch {}
-      panStart = { id: e.pointerId, x: e.clientX, y: e.clientY, panX0: panX, panY0: panY };
-    } else {
-      panStart = null;
-    }
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    viewportEl.setPointerCapture?.(e.pointerId);
   });
 
   viewportEl.addEventListener("pointermove", (e) => {
-    if (!pointers.has(e.pointerId)) return;
-
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    const overlayOpen = document.getElementById("overlay").classList.contains("open");
-    if (overlayOpen) return;
-
-    if (pinchStart && pointers.size >= 2) {
-      const ids = Array.from(pointers.keys()).slice(0, 2);
-      const p1 = pointers.get(ids[0]);
-      const p2 = pointers.get(ids[1]);
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
-      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
-
-      const scale = dist / (pinchStart.dist || 1);
-      z = clampZ(pinchStart.z0 * scale);
-
-      // keep world point under midpoint stable
-      panX = midX - pinchStart.worldX * z;
-      panY = midY - pinchStart.worldY * z;
-
-      suppressClick();
-      applyTransform();
-      return;
-    }
-
-    if (panStart && panStart.id === e.pointerId) {
-      const dx = e.clientX - panStart.x;
-      const dy = e.clientY - panStart.y;
-      if (Math.hypot(dx, dy) > 3) suppressClick();
-      panX = panStart.panX0 + dx;
-      panY = panStart.panY0 + dy;
-      applyTransform();
-    }
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    panX += dx;
+    panY += dy;
+    applyTransform();
   });
 
-  const endPointer = (e) => {
-    if (pointers.has(e.pointerId)) pointers.delete(e.pointerId);
+  viewportEl.addEventListener("pointerup", () => { dragging = false; });
+  viewportEl.addEventListener("pointercancel", () => { dragging = false; });
 
-    try { viewportEl.releasePointerCapture?.(e.pointerId); } catch {}
-
-    if (pointers.size < 2) pinchStart = null;
-
-    if (pointers.size === 1) {
-      // if one finger remains, allow continuing pan (even if it started on node during pinch)
-      const [id, p] = pointers.entries().next().value;
-      panStart = { id, x: p.x, y: p.y, panX0: panX, panY0: panY };
-    } else {
-      panStart = null;
-    }
-  };
-
-  viewportEl.addEventListener("pointerup", endPointer);
-  viewportEl.addEventListener("pointercancel", endPointer);
-
-  // wheel zoom
   viewportEl.addEventListener("wheel", (e) => {
     e.preventDefault();
-
-    const overlayOpen = document.getElementById("overlay").classList.contains("open");
-    if (overlayOpen) return;
-
     const rect = viewportEl.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
     const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
-    const next = clampZ(z * factor);
+    const next = Math.max(MIN_Z, Math.min(MAX_Z, z * factor));
 
     const wx = (cx - panX) / z;
     const wy = (cy - panY) / z;
@@ -807,7 +773,6 @@ export function exportPortableTaskMap(args: Args) {
     panX = cx - wx * z;
     panY = cy - wy * z;
 
-    suppressClick();
     applyTransform();
   }, { passive:false });
 
@@ -815,67 +780,193 @@ export function exportPortableTaskMap(args: Args) {
   const overlay = document.getElementById("overlay");
   const btnClose = document.getElementById("btnClose");
   const fileList = document.getElementById("fileList");
-  const pdfFrame = document.getElementById("pdfFrame");
   const modalTitle = document.getElementById("modalTitle");
+  const modal = document.getElementById("modal");
 
-  let currentObjectUrl = null;
+  // PDF.js UI refs
+  const pdfScroll = document.getElementById("pdfScroll");
+  const pdfInfo = document.getElementById("pdfInfo");
+  const btnFit = document.getElementById("pdfFit");
+  const btnZoomOut = document.getElementById("pdfZoomOut");
+  const btnZoomIn = document.getElementById("pdfZoomIn");
 
-  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent);
+  let renderToken = 0;
+  let lastBytes = null;
+  let fitScale = 1;
+  let userScaleMul = 1;
+
+  const pdfjsLib = window.pdfjsLib;
+  const canRender = !!(pdfjsLib && pdfjsLib.getDocument);
+
+  const showMsg = (msg) => {
+    pdfScroll.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "pdfMsg";
+    d.textContent = msg;
+    pdfScroll.appendChild(d);
+  };
+
+  const dataUrlToBytes = (dataUrl) => {
+    const s = String(dataUrl || "");
+    if (!s.startsWith("data:")) return null;
+    const comma = s.indexOf(",");
+    if (comma < 0) return null;
+    const meta = s.slice(0, comma);
+    const b64 = s.slice(comma + 1);
+    if (!/;base64/i.test(meta)) return null;
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  };
+
+  const fetchToBytes = async (url) => {
+    const res = await fetch(url);
+    const ab = await res.arrayBuffer();
+    return new Uint8Array(ab);
+  };
+
+  const computeFitScale = async (pdf) => {
+    const page1 = await pdf.getPage(1);
+    const v1 = page1.getViewport({ scale: 1 });
+    const pad = 24;
+    const w = Math.max(320, (pdfScroll.clientWidth || 800) - pad);
+    return Math.max(0.25, Math.min(4, w / v1.width));
+  };
+
+  const renderAllPages = async (bytes, scale) => {
+    if (!canRender) {
+      showMsg("PDF renderer failed to load.");
+      return;
+    }
+
+    const token = ++renderToken;
+    pdfScroll.innerHTML = "";
+    showMsg("Loading PDF...");
+
+    try {
+      const loadingTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
+      const pdf = await loadingTask.promise;
+      if (token !== renderToken) return;
+
+      pdfScroll.innerHTML = "";
+      pdfInfo.textContent = "PDF · " + pdf.numPages + " page" + (pdf.numPages === 1 ? "" : "s");
+
+      const dpr = window.devicePixelRatio || 1;
+
+      for (let p=1; p<=pdf.numPages; p++) {
+        if (token !== renderToken) return;
+
+        const page = await pdf.getPage(p);
+        const viewport = page.getViewport({ scale });
+
+        const canvas = document.createElement("canvas");
+        canvas.className = "pdfPage";
+        const ctx = canvas.getContext("2d", { alpha: false });
+
+        const outputScale = dpr;
+
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = Math.floor(viewport.width) + "px";
+        canvas.style.height = Math.floor(viewport.height) + "px";
+
+        const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+
+        pdfScroll.appendChild(canvas);
+
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+          transform,
+          background: "white"
+        }).promise;
+      }
+    } catch (err) {
+      pdfScroll.innerHTML = "";
+      showMsg("Could not render PDF.");
+    }
+  };
+
+  const openPdf = async (att) => {
+    if (!att || !att.dataUrl) return;
+
+    if (!canRender) {
+      showMsg("PDF renderer failed to load.");
+      return;
+    }
+
+    pdfInfo.textContent = att.name || "PDF";
+    showMsg("Loading PDF...");
+
+    // blob: URLs können in einer neuen Datei nicht mehr gültig sein
+    const du = String(att.dataUrl || "");
+    if (du.startsWith("blob:")) {
+      showMsg("This attachment was stored as a blob URL and cannot be embedded. Please re-attach the PDF so it becomes a data URL.");
+      return;
+    }
+
+    let bytes = dataUrlToBytes(du);
+    if (!bytes) {
+      try {
+        bytes = await fetchToBytes(du);
+      } catch {
+        showMsg("Could not load PDF bytes.");
+        return;
+      }
+    }
+
+    lastBytes = bytes;
+
+    // Fit scale neu bestimmen
+    try {
+      // schneller: einmal pdf laden, fit scale rechnen, dann rendern
+      const loadingTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
+      const pdf = await loadingTask.promise;
+      fitScale = await computeFitScale(pdf);
+      userScaleMul = 1;
+
+      // rendern (neu laden ist ok; deterministisch + simpler)
+      await renderAllPages(bytes, fitScale * userScaleMul);
+      pdfScroll.scrollTop = 0;
+    } catch {
+      showMsg("Could not render PDF.");
+    }
+  };
 
   const closeOverlay = () => {
     overlay.classList.remove("open");
     overlay.setAttribute("aria-hidden","true");
     fileList.innerHTML = "";
-    pdfFrame.removeAttribute("src");
-    if (currentObjectUrl) {
-      URL.revokeObjectURL(currentObjectUrl);
-      currentObjectUrl = null;
-    }
+    renderToken++;
+    lastBytes = null;
+    pdfScroll.innerHTML = "";
   };
 
   btnClose.addEventListener("click", closeOverlay);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOverlay(); });
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(); });
 
-  const openPdf = async (att) => {
-    if (currentObjectUrl) {
-      URL.revokeObjectURL(currentObjectUrl);
-      currentObjectUrl = null;
-    }
+  btnFit.addEventListener("click", () => {
+    if (!lastBytes) return;
+    userScaleMul = 1;
+    void renderAllPages(lastBytes, fitScale * userScaleMul);
+  });
 
-    const du = String(att?.dataUrl || "");
-    if (!du) {
-      pdfFrame.removeAttribute("src");
-      return;
-    }
+  btnZoomIn.addEventListener("click", () => {
+    if (!lastBytes) return;
+    userScaleMul = Math.min(3.5, userScaleMul * 1.15);
+    void renderAllPages(lastBytes, fitScale * userScaleMul);
+  });
 
-    // Wenn jemand aus Versehen blob: URLs exportiert hat -> die sind in einer neuen Datei nicht mehr gültig
-    if (du.startsWith("blob:")) {
-      pdfFrame.removeAttribute("src");
-      fileList.innerHTML = '<div class="empty">This attachment was stored as a blob URL and cannot be embedded. Please re-attach the PDF so it becomes a data URL.</div>';
-      return;
-    }
-
-    // iOS: data: direkt ist oft am stabilsten im iframe
-    if (isIOS()) {
-      pdfFrame.src = du;
-      return;
-    }
-
-    // sonst: dataUrl -> Blob -> ObjectURL (stabiler/performanter)
-    try {
-      const res = await fetch(du);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      currentObjectUrl = url;
-      pdfFrame.src = url;
-    } catch {
-      pdfFrame.src = du;
-    }
-  };
+  btnZoomOut.addEventListener("click", () => {
+    if (!lastBytes) return;
+    userScaleMul = Math.max(0.35, userScaleMul / 1.15);
+    void renderAllPages(lastBytes, fitScale * userScaleMul);
+  });
 
   const openFilesForNode = (nodeId) => {
-    const atts = getAttachments(nodeId).filter(a => a && a.dataUrl);
+    const atts = (getAttachments(nodeId) || []).filter(a => a && a.dataUrl);
     if (!atts || atts.length === 0) return;
 
     overlay.classList.add("open");
@@ -884,16 +975,20 @@ export function exportPortableTaskMap(args: Args) {
     const title = (nodeId === CENTER_ID) ? (DATA.projectTitle || "Project") : (taskById.get(nodeId)?.title || "Task");
     modalTitle.textContent = title;
 
+    // modal layout: one vs many
+    if (atts.length === 1) modal.classList.add("one");
+    else modal.classList.remove("one");
+
     fileList.innerHTML = "";
 
     if (atts.length === 1) {
-      fileList.innerHTML = '<div class="empty">1 PDF attached.</div>';
+      fileList.innerHTML = '<div class="pdfMsg">1 PDF attached.</div>';
       void openPdf(atts[0]);
       return;
     }
 
     const info = document.createElement("div");
-    info.className = "empty";
+    info.className = "pdfMsg";
     info.textContent = atts.length + " PDFs attached:";
     fileList.appendChild(info);
 

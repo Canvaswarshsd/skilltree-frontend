@@ -13,6 +13,7 @@
     "@vercel/analytics": "^1.6.1",
     "html-to-image": "^1.11.13",
     "jspdf": "^3.0.3",
+    "pdfjs-dist": "^5.4.530",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
