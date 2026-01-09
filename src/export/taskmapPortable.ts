@@ -28,24 +28,8 @@ function isIOSLike(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
   const iOS = /iPad|iPhone|iPod/i.test(ua);
-  const iPadOS = (navigator as any).platform === "MacIntel" && (navigator as any).maxTouchPoints > 1;
+  const iPadOS = navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1;
   return iOS || iPadOS;
-}
-
-function isAndroidLike(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent || "";
-  return /Android/i.test(ua);
-}
-
-function isMobileLike(): boolean {
-  return isIOSLike() || isAndroidLike();
-}
-
-function canInlinePdfPreview(): boolean {
-  // Deterministisch: iframe-PDF ist auf iOS/Android nicht zuverlässig.
-  // Desktop-Only Inline Preview.
-  return !isMobileLike();
 }
 
 async function trySaveWithFilePicker(filename: string, blob: Blob): Promise<boolean> {
@@ -91,45 +75,19 @@ async function tryShareFile(filename: string, blob: Blob): Promise<boolean> {
   }
 }
 
-function openHtmlInNewTabDeterministic(html: string) {
-  // iOS: blob:text/html in new tab can render white/blank.
-  // Deterministic fallback: open a blank tab and write the html into it (user gesture required).
-  const w = window.open("", "_blank", "noopener,noreferrer");
-  if (!w) return false;
-  try {
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    return true;
-  } catch {
-    try {
-      w.close();
-    } catch {}
-    return false;
-  }
-}
-
-function downloadBlob(filename: string, blob: Blob, htmlForIOSFallback?: string) {
+function downloadBlob(filename: string, blob: Blob) {
   void (async () => {
-    // 1) Best: File picker (Chromium, teils Android Desktop/Chromium)
+    // 1) Best: File picker (Chromium, teils Android)
     if (await trySaveWithFilePicker(filename, blob)) return;
 
     // 2) Mobile/iOS Best: Share Sheet ("Save to Files")
     if (await tryShareFile(filename, blob)) return;
 
-    // 3) Deterministic iOS fallback: open a real rendered HTML tab (not blob URL)
-    if (isIOSLike() && typeof htmlForIOSFallback === "string" && htmlForIOSFallback.length > 0) {
-      // User can Share -> Save to Files from this tab reliably.
-      if (openHtmlInNewTabDeterministic(htmlForIOSFallback)) return;
-    }
-
-    // 4) Classic download
+    // 3) Fallback: classic download
     const url = URL.createObjectURL(blob);
 
-    // iOS Safari: a.download is unreliable; opening blob may show blank.
-    // We already handled iOS above, but keep a safe fallback:
+    // iOS Safari blockt a.download oft → öffne stattdessen in neuem Tab
     if (isIOSLike()) {
-      // last resort
       window.open(url, "_blank", "noopener,noreferrer");
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       return;
@@ -441,17 +399,6 @@ export function exportPortableTaskMap(args: Args) {
     font-size: 12px;
     pointer-events:none;
   }
-  .pdfMsgMobile{
-    position:absolute; left:0; right:0; top:44px; bottom:0;
-    display:none;
-    align-items:center; justify-content:center;
-    text-align:center;
-    padding: 18px;
-    color: rgba(255,255,255,0.72);
-    font-size: 12px;
-    pointer-events:none;
-  }
-  .pdfMsgMobile.show{display:flex;}
 
   .modal.one .fileList{ display:none; }
   .modal.one .modalBody{ display:block; }
@@ -502,7 +449,6 @@ export function exportPortableTaskMap(args: Args) {
           </div>
           <div class="pdfWrap" id="pdfWrap">
             <div class="pdfMsg" id="pdfMsg">Select a PDF.</div>
-            <div class="pdfMsgMobile" id="pdfMsgMobile">Inline preview is not supported on this device.<br/>Tap <b>Open</b> to view the PDF fullscreen.</div>
             <iframe class="pdfFrame" id="pdfFrame" title="PDF Viewer"></iframe>
           </div>
         </div>
@@ -686,7 +632,7 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     const t = taskById.get(id);
     if (!t) return "#64748b";
     let cur = t;
-    while (cur && cur.parentId) cur = cur.parentId ? taskById.get(cur.parentId) : null;
+    while (cur && cur.parentId) cur = taskById.get(cur.parentId);
     const rootId = cur ? cur.id : t.id;
     const base = rootBubbleColor(rootId);
     return (t.parentId ? (t.color || base) : base);
@@ -758,10 +704,10 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     minY = Math.min(minY, n.y - n.r);
     maxY = Math.max(maxY, n.y + n.r);
   }
-  minX -= (36 + 18);
-  maxX += (36 + 18);
-  minY -= (24 + 18);
-  maxY += (48 + 18);
+  minX -= (EXPORT_SHADOW_PAD_X + EXPORT_MIN_PADDING_PX);
+  maxX += (EXPORT_SHADOW_PAD_X + EXPORT_MIN_PADDING_PX);
+  minY -= (EXPORT_SHADOW_PAD_TOP + EXPORT_MIN_PADDING_PX);
+  maxY += (EXPORT_SHADOW_PAD_BOTTOM + EXPORT_MIN_PADDING_PX);
 
   const width = Math.max(1, Math.ceil(maxX - minX));
   const height = Math.max(1, Math.ceil(maxY - minY));
@@ -808,7 +754,7 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
 
     const text = document.createElement("div");
     text.className = "text";
-    const maxLen = (n.kind === "center") ? ${MAXLEN_CENTER} : ${MAXLEN_ROOT_AND_CHILD};
+    const maxLen = (n.kind === "center") ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
     const lines = splitTitleLines(n.title, maxLen, 3);
     for (const ln of lines) {
       const sp = document.createElement("span");
@@ -840,7 +786,7 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
 
   let panX = 0, panY = 0, z = 1;
 
-  const clampZ = (v) => Math.max(${MIN_Z}, Math.min(${MAX_Z}, v));
+  const clampZ = (v) => Math.max(MIN_Z, Math.min(MAX_Z, v));
 
   const applyTransform = () => {
     worldEl.style.transform = \`translate(\${panX}px,\${panY}px) scale(\${z})\`;
@@ -990,7 +936,7 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     applyTransform();
   }, { passive:false });
 
-  // ===== PDF Overlay =====
+  // ===== PDF Overlay (native viewer via iframe) =====
   const overlay = document.getElementById("overlay");
   const btnClose = document.getElementById("btnClose");
   const fileList = document.getElementById("fileList");
@@ -1002,17 +948,9 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
   const pdfDownload = document.getElementById("pdfDownload");
   const pdfFrame = document.getElementById("pdfFrame");
   const pdfMsg = document.getElementById("pdfMsg");
-  const pdfMsgMobile = document.getElementById("pdfMsgMobile");
-
-  const UA = navigator.userAgent || "";
-  const IS_IOS = /iPad|iPhone|iPod/i.test(UA) || ((navigator.platform === "MacIntel") && (navigator.maxTouchPoints || 0) > 1);
-  const IS_ANDROID = /Android/i.test(UA);
-  const CAN_INLINE = !(IS_IOS || IS_ANDROID);
 
   let currentPdfUrl = "";
   let currentObjectUrl = "";
-  let currentPdfName = "attachment.pdf";
-  let currentPdfBytes = null; // Uint8Array | null
 
   const showMsg = (msg) => {
     pdfMsg.textContent = msg;
@@ -1020,11 +958,6 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
   };
   const hideMsg = () => {
     pdfMsg.style.display = "none";
-  };
-
-  const showMobileHint = (on) => {
-    if (!pdfMsgMobile) return;
-    pdfMsgMobile.classList.toggle("show", !!on);
   };
 
   const revokeObjectUrl = () => {
@@ -1059,121 +992,56 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     currentPdfUrl = url || "";
     if (isObjectUrl) currentObjectUrl = url || "";
 
-    if (!CAN_INLINE) {
-      // Deterministic: no inline iframe preview on mobile.
-      pdfFrame.src = "about:blank";
-      showMobileHint(true);
-      showMsg("Tap Open to view the PDF fullscreen.");
-      return;
-    }
-
-    showMobileHint(false);
-
     pdfFrame.src = "about:blank";
     showMsg("Loading PDF...");
 
+    // set after blank to force refresh
     setTimeout(() => {
       pdfFrame.src = currentPdfUrl || "about:blank";
     }, 0);
   };
 
-  if (CAN_INLINE) {
-    pdfFrame.addEventListener("load", () => {
-      if (currentPdfUrl && currentPdfUrl !== "about:blank") hideMsg();
-    });
-  }
-
-  const ensureObjectUrlFromBytes = () => {
-    if (currentPdfBytes && currentPdfBytes.byteLength > 0) {
-      const blob = new Blob([currentPdfBytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      currentObjectUrl = url;
-      currentPdfUrl = url;
-      return url;
-    }
-    return currentPdfUrl || "";
-  };
-
-  pdfOpen.addEventListener("click", async () => {
-    if (!currentPdfUrl && !currentPdfBytes) return;
-
-    // For mobile: always open fullscreen. Prefer object URL if we have bytes.
-    const url = ensureObjectUrlFromBytes();
-    if (!url) return;
-
-    window.open(url, "_blank", "noopener,noreferrer");
+  pdfFrame.addEventListener("load", () => {
+    if (currentPdfUrl && currentPdfUrl !== "about:blank") hideMsg();
   });
 
-  const shareOrDownloadBytes = async (name, bytes) => {
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const file = new File([blob], name || "attachment.pdf", { type: "application/pdf" });
+  pdfOpen.addEventListener("click", () => {
+    if (!currentPdfUrl) return;
+    window.open(currentPdfUrl, "_blank", "noopener,noreferrer");
+  });
 
-    const nav = navigator;
-    // Mobile-first: Share Sheet
-    if ((nav as any).share) {
-      try {
-        if (typeof (nav as any).canShare === "function" && !(nav as any).canShare({ files: [file] })) {
-          // cannot share files -> fallback
-        } else {
-          await (nav as any).share({ files: [file], title: name || "PDF" });
-          return true;
-        }
-      } catch {}
-    }
-
-    // Desktop fallback: classic download
-    const url = URL.createObjectURL(blob);
+  pdfDownload.addEventListener("click", () => {
+    if (!currentPdfUrl) return;
     const a = document.createElement("a");
-    a.href = url;
-    a.download = name || "attachment.pdf";
+    a.href = currentPdfUrl;
+    a.download = (pdfInfo.textContent || "attachment.pdf").replace(/^PDF\\s*·\\s*/i, "") || "attachment.pdf";
     a.rel = "noopener";
     a.style.display = "none";
     document.body.appendChild(a);
     try { a.click(); } catch {}
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    return true;
-  };
-
-  pdfDownload.addEventListener("click", async () => {
-    if (!currentPdfUrl && !currentPdfBytes) return;
-
-    // If we have embedded bytes (data URL), we can reliably share/download everywhere.
-    if (currentPdfBytes) {
-      await shareOrDownloadBytes(currentPdfName, currentPdfBytes);
-      return;
-    }
-
-    // Otherwise: just open the URL (may be remote, may be blocked for direct download)
-    if (currentPdfUrl) window.open(currentPdfUrl, "_blank", "noopener,noreferrer");
   });
 
   const openPdf = async (att) => {
     const du = String(att?.dataUrl || "");
     if (!du) {
       showMsg("No PDF data.");
-      showMobileHint(!CAN_INLINE);
       return;
     }
 
-    currentPdfName = att?.name || "attachment.pdf";
-    pdfInfo.textContent = currentPdfName;
-
-    currentPdfBytes = null;
+    pdfInfo.textContent = att?.name || "PDF";
 
     // Blob URLs from the editor session are NOT portable.
     if (du.startsWith("blob:")) {
+      showMsg("This PDF was stored as a blob URL and is not portable. Please re-attach so it becomes a data URL.");
       currentPdfUrl = "";
       pdfFrame.src = "about:blank";
-      showMobileHint(!CAN_INLINE);
-      showMsg("This PDF was stored as a blob URL and is not portable. Please re-attach so it becomes a data URL.");
       return;
     }
 
-    // Best: data URL -> bytes -> blob URL
+    // Best case: embedded data URL -> convert to blob URL for reliable viewing (esp. mobile)
     const bytes = dataUrlToBytes(du);
     if (bytes) {
-      currentPdfBytes = bytes;
       const blob = new Blob([bytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       setPdfSrc(url, true);
@@ -1181,19 +1049,11 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     }
 
     // Otherwise: treat as URL (may require internet / may be blocked by X-Frame-Options)
-    currentPdfUrl = du;
+    // We still try to open in iframe; user can always use "Open".
+    setPdfSrc(du, false);
 
-    // Desktop: try iframe
-    if (CAN_INLINE) {
-      setPdfSrc(du, false);
-      showMsg("If the PDF does not appear here, click Open.");
-      return;
-    }
-
-    // Mobile: no inline; just instruct + use Open
-    pdfFrame.src = "about:blank";
-    showMobileHint(true);
-    showMsg("Tap Open to view the PDF fullscreen.");
+    // Show a helpful hint for tricky cases
+    showMsg("If the PDF does not appear here, tap Open.");
   };
 
   const closeOverlay = () => {
@@ -1202,10 +1062,8 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
     fileList.innerHTML = "";
     modalEl.classList.remove("one");
     currentPdfUrl = "";
-    currentPdfBytes = null;
     revokeObjectUrl();
     pdfFrame.src = "about:blank";
-    showMobileHint(!CAN_INLINE);
     showMsg("Select a PDF.");
   };
 
@@ -1262,8 +1120,5 @@ const DATA = JSON.parse(document.getElementById("__OTM_DATA__").textContent || "
 
   const filenameBase = slugifyTitle(data.projectTitle) || "taskmap";
   const filename = `${filenameBase}.taskmap.html`;
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-
-  // Important: pass html into iOS fallback writer so we don't get blank blob tabs
-  downloadBlob(filename, blob, html);
+  downloadBlob(filename, new Blob([html], { type: "text/html;charset=utf-8" }));
 }
