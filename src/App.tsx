@@ -86,7 +86,6 @@ function isDescendant(
  * Aktuell bewusst leer => weißer Hintergrund, kein Placeholder.
  */
 
-
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -347,7 +346,7 @@ export default function App() {
 
   const doSave = async () => {
     setSaveOpen(false);
-    const state = serializeState(
+    const ›state = serializeState(
       projectTitle,
       tasks,
       nodeOffset,
@@ -569,6 +568,14 @@ export default function App() {
             {removeMode ? "Removing" : "Remove Task"}
           </button>
 
+          {/* ✅ Reihenfolge geändert: Edit → Visualize → Save */}
+          <button
+            className={view === "edit" ? "view-btn active" : "view-btn"}
+            onClick={switchToEdit}
+          >
+            Edit
+          </button>
+
           <button
             className={view === "map" ? "view-btn active" : "view-btn"}
             onClick={openMap}
@@ -591,12 +598,6 @@ export default function App() {
               : saveMenu}
           </div>
 
-          <button
-            className={view === "edit" ? "view-btn active" : "view-btn"}
-            onClick={switchToEdit}
-          >
-            Edit
-          </button>
           <button className="view-btn" onClick={doOpen}>
             Open
           </button>
