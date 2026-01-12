@@ -34,6 +34,34 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   return bytes;
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(",");
+  const meta = parts[0] || "";
+  const b64 = parts[1] || "";
+
+  const mimeMatch = meta.match(/data:([^;]+);base64/i);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+  return new Blob([bytes], { type: mime });
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "attachment.pdf";
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export default function PdfPreviewOverlay(props: Props) {
@@ -91,7 +119,6 @@ export default function PdfPreviewOverlay(props: Props) {
 
     const update = () => {
       const w = el.clientWidth || 0;
-      // Guard gegen Micro-Jitter
       setContainerW((prev) => (Math.abs(prev - w) >= 1 ? w : prev));
     };
 
@@ -181,7 +208,6 @@ export default function PdfPreviewOverlay(props: Props) {
           try {
             await rt.promise;
           } catch (e: any) {
-            // PDF.js wirft RenderingCancelledException beim cancel()
             if (e?.name === "RenderingCancelledException") return;
             throw e;
           }
@@ -214,7 +240,54 @@ export default function PdfPreviewOverlay(props: Props) {
     if (!attachments.length) onClose();
   }, [open, attachments.length, onClose]);
 
+  const onDownloadSelected = () => {
+    if (!selected) return;
+    try {
+      const blob = dataUrlToBlob(selected.dataUrl);
+      downloadBlob(selected.name || "attachment.pdf", blob);
+    } catch {
+      // fallback: try direct dataUrl download
+      const a = document.createElement("a");
+      a.href = selected.dataUrl;
+      a.download = selected.name || "attachment.pdf";
+      a.rel = "noopener";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  };
+
+  const onOpenSelectedInNewTab = () => {
+    if (!selected) return;
+    try {
+      const blob = dataUrlToBlob(selected.dataUrl);
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, "_blank", "noopener,noreferrer");
+      // revoke after a bit (enough time for the new tab to load)
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      // If popup blocked, fallback to download
+      if (!w) onDownloadSelected();
+    } catch {
+      // fallback: try opening dataUrl directly
+      const w = window.open(selected.dataUrl, "_blank", "noopener,noreferrer");
+      if (!w) onDownloadSelected();
+    }
+  };
+
   if (!open) return null;
+
+  const headerBtnStyle: React.CSSProperties = {
+    appearance: "none",
+    border: "none",
+    background: "rgba(255,255,255,0.10)",
+    color: "#e5e7eb",
+    borderRadius: 12,
+    padding: "8px 12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
 
   return (
     <div
@@ -279,19 +352,27 @@ export default function PdfPreviewOverlay(props: Props) {
             </div>
           </div>
 
+          {/* NEW: Open in New Tab */}
           <button
-            onClick={onClose}
-            style={{
-              appearance: "none",
-              border: "none",
-              background: "rgba(255,255,255,0.10)",
-              color: "#e5e7eb",
-              borderRadius: 12,
-              padding: "8px 12px",
-              fontWeight: 800,
-              cursor: "pointer",
-            }}
+            onClick={onOpenSelectedInNewTab}
+            style={headerBtnStyle}
+            disabled={!selected}
+            title="Open the selected PDF in a new tab"
           >
+            Open in New Tab
+          </button>
+
+          {/* NEW: Download */}
+          <button
+            onClick={onDownloadSelected}
+            style={headerBtnStyle}
+            disabled={!selected}
+            title="Download the selected PDF"
+          >
+            Download
+          </button>
+
+          <button onClick={onClose} style={headerBtnStyle}>
             Close
           </button>
         </div>
@@ -341,7 +422,6 @@ export default function PdfPreviewOverlay(props: Props) {
           ref={viewportRef}
           style={{
             flex: 1,
-            // !!! FIX: scrollbar immer reservieren => kein clientWidth Toggle auf Windows !!!
             overflowY: "scroll",
             overflowX: "hidden",
             WebkitOverflowScrolling: "touch",
