@@ -2434,10 +2434,22 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
                 }
               }}
-              onPointerUp={() => {
-                clearTouchLongPress();
-                touchLongPressFiredRef.current = false;
-              }}
+              onPointerUp={(e) => {
+  // vorhandenes Verhalten beibehalten
+  clearTouchLongPress();
+  touchLongPressFiredRef.current = false;
+
+  if (!active) return;
+  if (removeMode) return;
+
+  // Nur Linksklick oder Touch
+  const isPrimary = e.pointerType === "touch" || e.button === 0;
+  if (!isPrimary) return;
+
+  // Öffnet den Viewer NUR wenn PDFs existieren (openPdfPreviewForNode macht das selbst)
+  openPdfPreviewForNode(CENTER_ID);
+}}
+
               onPointerCancel={onNodePointerCancelCommon}
               lang={document.documentElement.lang || navigator.language || "en"}
             >
