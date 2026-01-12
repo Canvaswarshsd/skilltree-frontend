@@ -263,7 +263,7 @@ export default function AboutView() {
             <div style={styles.col}>
               <h1 style={styles.h1}>About</h1>
               <p style={styles.p}>
-                Hi — I’m the developer of <b>OpenTaskMap</b>. If you found a bug, have an
+                Hi — I’m the developer of <b>OpenTaskmap</b>. If you found a bug, have an
                 idea, or want to give quick feedback, send me a message here.
               </p>
 
