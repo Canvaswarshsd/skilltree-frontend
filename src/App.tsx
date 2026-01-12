@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import MapView, { MapApi, Task as MapTask } from "./MapView";
-import { exportPortableTaskMap } from "./export/taskmapPortable";
 import AboutView from "./views/AboutView";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -86,6 +85,7 @@ function isDescendant(
  * sauber in ein separates Script (z.B. src/views/AboutView.tsx) verschieben können).
  * Aktuell bewusst leer => weißer Hintergrund, kein Placeholder.
  */
+
 
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
@@ -524,28 +524,6 @@ export default function App() {
         }}
         onMouseLeave={() => setDownloadOpen(false)}
       >
-        <button
-  className="save-item"
-  style={{ color: "#d4af37" }}
-  onClick={async () => {
-    setDownloadOpen(false);
-    const meta = mapRef.current?.getTaskMapMeta?.();
-    if (!meta) return;
-    await exportPortableTaskMap({
-      projectTitle,
-      tasks,
-      nodeOffset,
-      pan,
-      scale,
-      branchColorOverride,
-      centerColor,
-      ...meta,
-    } as any);
-  }}
->
-  Test
-</button>
-
         <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
           PDF
         </button>
