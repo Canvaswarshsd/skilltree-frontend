@@ -346,7 +346,7 @@ export default function App() {
 
   const doSave = async () => {
     setSaveOpen(false);
-    const ›state = serializeState(
+    const state = serializeState(
       projectTitle,
       tasks,
       nodeOffset,
