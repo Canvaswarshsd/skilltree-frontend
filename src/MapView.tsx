@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
+import PdfPreviewOverlay from "./PdfPreviewOverlay";
 
 /* ---------- Types (lokal identisch zu App) ---------- */
 
@@ -145,6 +146,9 @@ const MAXLEN_ROOT_AND_CHILD = 12;
 /* Long-Press-Einstellungen für Touch */
 const TOUCH_LONGPRESS_DELAY_MS = 450;
 const TOUCH_LONGPRESS_MOVE_CANCEL_PX = 12;
+
+/* Tap vs Drag */
+const TAP_MAX_MOVE_PX = 6;
 
 /* Export: Minimaler Weißrand + Shadow-Sicherheitsrand */
 const EXPORT_MIN_PADDING_PX = 18;
@@ -409,6 +413,58 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     );
   };
 
+  /* ---------- PDF Preview Overlay State ---------- */
+
+  const [pdfPreview, setPdfPreview] = useState<{
+    nodeId: string;
+    attachmentId: string;
+  } | null>(null);
+
+  // schützt davor, dass ein Touch-LongPress (Menü) danach noch als Tap zählt
+  const touchLongPressFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!active) setPdfPreview(null);
+  }, [active]);
+
+  const openPdfPreviewForNode = (nodeId: string) => {
+    const atts = getAttachmentsForNode(nodeId);
+    if (!atts.length) return;
+
+    const att = atts[atts.length - 1];
+
+    closeColorMenu();
+    setFileMenu((m) => ({ ...m, open: false }));
+    setPdfPreview({ nodeId, attachmentId: att.id });
+  };
+
+  const onNodePointerUpMaybeOpenPdf = (
+    e: React.PointerEvent,
+    nodeId: string
+  ) => {
+    const longPressOpened = touchLongPressFiredRef.current;
+    const d = vDrag.current;
+    const isTap = !!d && d.id === nodeId && !d.moved;
+
+    const isPrimary = e.pointerType === "touch" || e.button === 0;
+
+    clearTouchLongPress();
+    touchLongPressFiredRef.current = false;
+
+    if (!active) return;
+    if (removeMode) return;
+    if (!isPrimary) return;
+    if (!isTap) return;
+    if (longPressOpened) return;
+
+    openPdfPreviewForNode(nodeId);
+  };
+
+  const onNodePointerCancelCommon = () => {
+    clearTouchLongPress();
+    touchLongPressFiredRef.current = false;
+  };
+
   /* ---------- Long-Press für Touch (Nodes & Edges) ---------- */
 
   const touchLongPressTimer = useRef<number | null>(null);
@@ -442,6 +498,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     clientX: number,
     clientY: number
   ) => {
+    touchLongPressFiredRef.current = false;
     clearTouchLongPress();
     touchLongPressTarget.current = {
       kind: "node",
@@ -452,6 +509,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     touchLongPressTimer.current = window.setTimeout(() => {
       const t = touchLongPressTarget.current;
       if (!t || t.kind !== "node") return;
+      touchLongPressFiredRef.current = true;
       openColorMenuForNode(t.clientX, t.clientY, t.nodeId);
       clearTouchLongPress();
     }, TOUCH_LONGPRESS_DELAY_MS);
@@ -484,6 +542,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     id: string;
     startClient: { x: number; y: number };
     startOffset: { x: number; y: number };
+    moved: boolean;
   } | null>(null);
   const nodeDragging = useRef(false);
 
@@ -496,8 +555,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       id,
       startClient: { x: e.clientX, y: e.clientY },
       startOffset: getOffset(id),
+      moved: false,
     };
-	angleHudStart(id, e.target as HTMLElement);
+    angleHudStart(id, e.target as HTMLElement);
     nodeDragging.current = true;
     document.documentElement.classList.add("dragging-global");
   }
@@ -519,11 +579,14 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
     const dy = e.clientY - d.startClient.y;
+
+    if (!d.moved && Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) d.moved = true;
+
     setOffset(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
-	angleHudUpdateLive(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
+    angleHudUpdateLive(d.id, d.startOffset.x + dx, d.startOffset.y + dy);
   }
   function onNodePointerUp() {
-  angleHudEnd();
+    angleHudEnd();
     if (!vDrag.current) return;
     vDrag.current = null;
     nodeDragging.current = false;
@@ -1263,6 +1326,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
               onToggleRemoveTarget(kid.id);
               return;
             }
+
+            // nur Linksklick / Touch
+            if (e.pointerType !== "touch" && e.button !== 0) return;
+
             if (e.pointerType === "touch") {
               e.stopPropagation();
               e.preventDefault();
@@ -1272,8 +1339,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             }
             startNodeDrag(kid.id, e);
           }}
-          onPointerUp={() => clearTouchLongPress()}
-          onPointerCancel={() => clearTouchLongPress()}
+          onPointerUp={(e) => onNodePointerUpMaybeOpenPdf(e, kid.id)}
+          onPointerCancel={onNodePointerCancelCommon}
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={document.documentElement.lang || navigator.language || "en"}
         >
@@ -1698,7 +1765,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     const chars = Array.from(text);
     const widths = chars.map((ch) => ctx.measureText(ch).width);
     const totalWidth =
-      widths.reduce((a, b) => a + b, 0) + style.letterSpacingPx * Math.max(0, chars.length - 1);
+      widths.reduce((a, b) => a + b, 0) +
+      style.letterSpacingPx * Math.max(0, chars.length - 1);
 
     let x = cx - totalWidth / 2;
     ctx.textAlign = "left";
@@ -1799,12 +1867,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
       // sample styles from live DOM (so text sizing matches your CSS)
       const centerStyle = readTextStyleFromNode(".skill-node.center-node");
-      const rootStyle = readTextStyleFromNode(".skill-node.root-node", centerStyle);
-      const childStyle = readTextStyleFromNode(".skill-node.child-node", rootStyle);
+      const rootStyle = readTextStyleFromNode(
+        ".skill-node.root-node",
+        centerStyle
+      );
+      const childStyle = readTextStyleFromNode(
+        ".skill-node.child-node",
+        rootStyle
+      );
 
       const shadowSampleEl =
-        (wrapperRef.current?.querySelector(".skill-node.center-node") as HTMLElement | null) ||
-        null;
+        (wrapperRef.current?.querySelector(
+          ".skill-node.center-node"
+        ) as HTMLElement | null) || null;
       const shadow = readBoxShadow(shadowSampleEl);
 
       // edges first
@@ -1826,7 +1901,11 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         const cy = layout.originY + n.y;
 
         const styleForNode =
-          n.kind === "center" ? centerStyle : n.kind === "root" ? rootStyle : childStyle;
+          n.kind === "center"
+            ? centerStyle
+            : n.kind === "root"
+            ? rootStyle
+            : childStyle;
 
         // shadow + circle
         ctx.save();
@@ -1881,7 +1960,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         ctx.textBaseline = "middle";
         ctx.font = `${styleForNode.fontStyle} ${styleForNode.fontWeight} ${styleForNode.fontSizePx}px ${styleForNode.fontFamily}`;
 
-        const maxLen = n.kind === "center" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
+        const maxLen =
+          n.kind === "center" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
         const lines = splitTitleLines(n.title, maxLen, 3);
 
         const lh = styleForNode.lineHeightPx || styleForNode.fontSizePx * 1.1;
@@ -2007,7 +2087,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   };
 
   // 0° = 12 Uhr, clockwise (90° rechts, 180° unten, 270° links)
-  const angleHudComputeDeg = (px: number, py: number, nx: number, ny: number) => {
+  const angleHudComputeDeg = (
+    px: number,
+    py: number,
+    nx: number,
+    ny: number
+  ) => {
     const dx = nx - px;
     const dy = ny - py;
     const rad = Math.atan2(dx, -dy);
@@ -2059,7 +2144,13 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
     const totalRoots = Math.max(roots.length, 1);
 
-    const rec = (parentId: string, px: number, py: number, gpx: number, gpy: number) => {
+    const rec = (
+      parentId: string,
+      px: number,
+      py: number,
+      gpx: number,
+      gpy: number
+    ) => {
       const kids = byParent.get(parentId) || [];
       if (kids.length === 0) return;
 
@@ -2133,8 +2224,10 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   function angleHudStart(nodeId: string, targetEl?: HTMLElement) {
     if (!active || removeMode) return;
     if (nodeId === CENTER_ID) return;
-angleHudNodeElRef.current =
-  ((targetEl as any)?.closest?.(".skill-node") as HTMLElement) || targetEl || null;
+    angleHudNodeElRef.current =
+      ((targetEl as any)?.closest?.(".skill-node") as HTMLElement) ||
+      targetEl ||
+      null;
 
     const t = getTask(nodeId);
     if (!t) return;
@@ -2150,7 +2243,7 @@ angleHudNodeElRef.current =
     const baseY = curPos.y - curOff.y;
 
     // world radius from real DOM size (so tooltip stays nicely above circle)
-    let worldRadius = (t.parentId === null ? R_ROOT : R_CHILD);
+    let worldRadius = t.parentId === null ? R_ROOT : R_CHILD;
     try {
       if (targetEl) {
         const rect = targetEl.getBoundingClientRect();
@@ -2187,7 +2280,8 @@ angleHudNodeElRef.current =
     st.offY = nextOffY;
 
     const posMap = angleHudGetPosMapNow();
-    const parentPos = posMap[st.parentId] ?? posMap[CENTER_ID] ?? { x: 0, y: 0 };
+    const parentPos =
+      posMap[st.parentId] ?? posMap[CENTER_ID] ?? { x: 0, y: 0 };
 
     const nodeX = st.baseX + nextOffX;
     const nodeY = st.baseY + nextOffY;
@@ -2201,17 +2295,18 @@ angleHudNodeElRef.current =
 
     const rect = angleHudNodeElRef.current?.getBoundingClientRect();
 
-const screenX = rect
-  ? rect.left + rect.width / 2
-  : wrapperRef.current.getBoundingClientRect().left + (pan.x + nodeX * scale);
+    const screenX = rect
+      ? rect.left + rect.width / 2
+      : wrapperRef.current.getBoundingClientRect().left +
+        (pan.x + nodeX * scale);
 
-const screenY = rect
-  ? rect.top + rect.height / 2
-  : wrapperRef.current.getBoundingClientRect().top + (pan.y + nodeY * scale);
+    const screenY = rect
+      ? rect.top + rect.height / 2
+      : wrapperRef.current.getBoundingClientRect().top +
+        (pan.y + nodeY * scale);
 
-// super nah über dem Kreis:
-const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
-
+    // super nah über dem Kreis:
+    const yAnchor = rect ? rect.top - 6 : screenY - st.worldRadius * scale + 2;
 
     el.style.left = `${screenX}px`;
     el.style.top = `${yAnchor}px`;
@@ -2222,7 +2317,7 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
     if (st) st.active = false;
     angleHudStateRef.current = null;
     angleHudHideEl();
-	angleHudNodeElRef.current = null;
+    angleHudNodeElRef.current = null;
   }
 
   // cleanup on unmount
@@ -2239,7 +2334,9 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
   return (
     <>
       <div
-        className={"skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")}
+        className={
+          "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
+        }
         ref={wrapperRef}
         style={{
           touchAction: "none",
@@ -2337,8 +2434,11 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                   startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
                 }
               }}
-              onPointerUp={() => clearTouchLongPress()}
-              onPointerCancel={() => clearTouchLongPress()}
+              onPointerUp={() => {
+                clearTouchLongPress();
+                touchLongPressFiredRef.current = false;
+              }}
+              onPointerCancel={onNodePointerCancelCommon}
               lang={document.documentElement.lang || navigator.language || "en"}
             >
               {centerDone && (
@@ -2386,7 +2486,9 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                     }}
                     data-done={rootDone ? "true" : "false"}
                     data-remove-mode={removeMode ? "true" : "false"}
-                    data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
+                    data-remove-selected={
+                      isRootSelectedForRemove ? "true" : "false"
+                    }
                     onPointerDown={(e) => {
                       if (removeMode) {
                         e.stopPropagation();
@@ -2394,6 +2496,9 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                         onToggleRemoveTarget(root.id);
                         return;
                       }
+
+                      if (e.pointerType !== "touch" && e.button !== 0) return;
+
                       if (e.pointerType === "touch") {
                         e.stopPropagation();
                         e.preventDefault();
@@ -2403,8 +2508,8 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                       }
                       startNodeDrag(root.id, e);
                     }}
-                    onPointerUp={() => clearTouchLongPress()}
-                    onPointerCancel={() => clearTouchLongPress()}
+                    onPointerUp={(e) => onNodePointerUpMaybeOpenPdf(e, root.id)}
+                    onPointerCancel={onNodePointerCancelCommon}
                     onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                     lang={document.documentElement.lang || navigator.language || "en"}
                   >
@@ -2469,13 +2574,18 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
           >
             <div className="ctxmenu-header">
               {ctxMenu.kind === "node" ? (
-                <div className="ctxmenu-tabRow" style={{ display: "flex", gap: 10 }}>
+                <div
+                  className="ctxmenu-tabRow"
+                  style={{ display: "flex", gap: 10 }}
+                >
                   <button
                     className={
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
                       (ctxMenu.tab === "color" ? " ctxmenu-tabBtn-active" : "")
                     }
-                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "color" }))}
+                    onClick={() =>
+                      setCtxMenu((prev) => ({ ...prev, tab: "color" }))
+                    }
                   >
                     Color
                   </button>
@@ -2484,7 +2594,9 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
                       (ctxMenu.tab === "files" ? " ctxmenu-tabBtn-active" : "")
                     }
-                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "files" }))}
+                    onClick={() =>
+                      setCtxMenu((prev) => ({ ...prev, tab: "files" }))
+                    }
                   >
                     Files
                   </button>
@@ -2511,7 +2623,9 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
             </div>
 
             <div className="ctxmenu-body">
-              {ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
+              {ctxMenu.kind === "node" &&
+              ctxMenu.tab === "files" &&
+              ctxMenu.nodeId ? (
                 <div className="ctxmenu-filesView">
                   <button
                     className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
@@ -2520,11 +2634,17 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                     + Add PDF
                   </button>
                   {getAttachmentsForNode(ctxMenu.nodeId).length === 0 ? (
-                    <div className="ctxmenu-filesEmpty">No PDFs attached yet.</div>
+                    <div className="ctxmenu-filesEmpty">
+                      No PDFs attached yet.
+                    </div>
                   ) : (
                     <ul
                       className="ctxmenu-fileList"
-                      style={{ listStyle: "none", padding: 0, margin: "10px 0 0 0" }}
+                      style={{
+                        listStyle: "none",
+                        padding: 0,
+                        margin: "10px 0 0 0",
+                      }}
                     >
                       {getAttachmentsForNode(ctxMenu.nodeId).map((att) => (
                         <li key={att.id} className="ctxmenu-fileItem">
@@ -2556,7 +2676,10 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
                             <span className="ctxmenu-fileIcon" aria-hidden="true">
                               📄
                             </span>
-                            <span className="ctxmenu-fileName" style={{ color: "#e5e7eb" }}>
+                            <span
+                              className="ctxmenu-fileName"
+                              style={{ color: "#e5e7eb" }}
+                            >
                               {att.name}
                             </span>
                           </button>
@@ -2646,6 +2769,22 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
         />
       </div>
 
+      {/* PDF Overlay (Tap on Node opens, only if PDFs exist) */}
+      <PdfPreviewOverlay
+        open={!!pdfPreview}
+        title={
+          pdfPreview ? getTask(pdfPreview.nodeId)?.title || "Task" : ""
+        }
+        attachments={
+          pdfPreview ? getAttachmentsForNode(pdfPreview.nodeId) : []
+        }
+        selectedAttachmentId={pdfPreview?.attachmentId ?? null}
+        onSelectAttachment={(id) =>
+          setPdfPreview((p) => (p ? { ...p, attachmentId: id } : p))
+        }
+        onClose={() => setPdfPreview(null)}
+      />
+
       {/* Export-only DOM (unsichtbar, keine pan/scale transforms, gleiche CSS) */}
       {exportLayout && (
         <div
@@ -2694,7 +2833,11 @@ const yAnchor = rect ? rect.top - 6 : screenY - (st.worldRadius * scale) + 2;
 
               const cls =
                 "skill-node " +
-                (isCenter ? "center-node" : isChild ? "child-node" : "root-node") +
+                (isCenter
+                  ? "center-node"
+                  : isChild
+                  ? "child-node"
+                  : "root-node") +
                 (removeMode ? " node-remove-mode" : "") +
                 (n.removeSelected ? " node-remove-selected" : "");
 
