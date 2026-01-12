@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
+import {
+  getDocument,
+  GlobalWorkerOptions,
+  type PDFDocumentProxy,
+} from "pdfjs-dist";
 
-// Vite: Worker als URL importieren
-// (wenn das bei dir nicht geht: alternative Endung .js?url testen)
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 GlobalWorkerOptions.workerSrc = workerSrc as unknown as string;
@@ -85,12 +87,28 @@ export default function PdfPreviewOverlay(props: Props) {
     const el = viewportRef.current;
     if (!el) return;
 
-    const update = () => setContainerW(el.clientWidth || 0);
-    update();
+    let raf = 0;
 
-    const ro = new ResizeObserver(() => update());
+    const update = () => {
+      const w = el.clientWidth || 0;
+      // Guard gegen Micro-Jitter
+      setContainerW((prev) => (Math.abs(prev - w) >= 1 ? w : prev));
+    };
+
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(update);
+    };
+
+    schedule();
+
+    const ro = new ResizeObserver(() => schedule());
     ro.observe(el);
-    return () => ro.disconnect();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   }, [open]);
 
   // Render PDF with PDF.js
@@ -100,6 +118,8 @@ export default function PdfPreviewOverlay(props: Props) {
     if (!containerW) return;
 
     let cancelled = false;
+    const renderTasks: any[] = [];
+    let loadingTask: any = null;
 
     const render = async () => {
       setErr(null);
@@ -111,14 +131,16 @@ export default function PdfPreviewOverlay(props: Props) {
 
       try {
         const data = dataUrlToUint8Array(selected.dataUrl);
-        const task = getDocument({ data });
-        const pdf: PDFDocumentProxy = await task.promise;
+
+        loadingTask = getDocument({ data });
+        const pdf: PDFDocumentProxy = await loadingTask.promise;
         if (cancelled) return;
 
         setNumPages(pdf.numPages);
 
         // scale to fit width (with padding)
         const innerW = Math.max(240, containerW - 24);
+
         const first = await pdf.getPage(1);
         const vp1 = first.getViewport({ scale: 1 });
         const baseScale = innerW / (vp1.width || 1);
@@ -153,8 +175,16 @@ export default function PdfPreviewOverlay(props: Props) {
           wrap.appendChild(canvas);
           host?.appendChild(wrap);
 
-          const renderTask = page.render({ canvasContext: ctx, viewport: vpRender });
-          await renderTask.promise;
+          const rt = page.render({ canvasContext: ctx, viewport: vpRender });
+          renderTasks.push(rt);
+
+          try {
+            await rt.promise;
+          } catch (e: any) {
+            // PDF.js wirft RenderingCancelledException beim cancel()
+            if (e?.name === "RenderingCancelledException") return;
+            throw e;
+          }
         }
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || "Failed to render PDF.");
@@ -164,8 +194,17 @@ export default function PdfPreviewOverlay(props: Props) {
     };
 
     render();
+
     return () => {
       cancelled = true;
+      for (const rt of renderTasks) {
+        try {
+          rt?.cancel?.();
+        } catch {}
+      }
+      try {
+        loadingTask?.destroy?.();
+      } catch {}
     };
   }, [open, selected?.id, containerW]);
 
@@ -302,7 +341,9 @@ export default function PdfPreviewOverlay(props: Props) {
           ref={viewportRef}
           style={{
             flex: 1,
-            overflow: "auto",
+            // !!! FIX: scrollbar immer reservieren => kein clientWidth Toggle auf Windows !!!
+            overflowY: "scroll",
+            overflowX: "hidden",
             WebkitOverflowScrolling: "touch",
             padding: 12,
             touchAction: "pan-y",
