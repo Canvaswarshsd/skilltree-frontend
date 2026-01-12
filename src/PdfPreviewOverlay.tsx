@@ -34,19 +34,10 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-function dataUrlToBlob(dataUrl: string): Blob {
-  const parts = dataUrl.split(",");
-  const meta = parts[0] || "";
-  const b64 = parts[1] || "";
-
-  const mimeMatch = meta.match(/data:([^;]+);base64/i);
-  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-
-  return new Blob([bytes], { type: mime });
+// PDF-MIME erzwingen, damit Browser das als PDF rendert (nicht als "download me")
+function attachmentToPdfBlob(att: TaskAttachment): Blob {
+  const bytes = dataUrlToUint8Array(att.dataUrl);
+  return new Blob([bytes], { type: "application/pdf" });
 }
 
 function downloadBlob(filename: string, blob: Blob) {
@@ -83,7 +74,6 @@ export default function PdfPreviewOverlay(props: Props) {
     );
   }, [attachments, selectedAttachmentId]);
 
-  const cardRef = useRef<HTMLDivElement | null>(null);
   const pagesHostRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -243,35 +233,48 @@ export default function PdfPreviewOverlay(props: Props) {
   const onDownloadSelected = () => {
     if (!selected) return;
     try {
-      const blob = dataUrlToBlob(selected.dataUrl);
+      const blob = attachmentToPdfBlob(selected);
       downloadBlob(selected.name || "attachment.pdf", blob);
     } catch {
-      // fallback: try direct dataUrl download
-      const a = document.createElement("a");
-      a.href = selected.dataUrl;
-      a.download = selected.name || "attachment.pdf";
-      a.rel = "noopener";
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      window.alert("Download failed. Please try again.");
     }
   };
 
+  // IMPORTANT: Kein Download-Fallback. Entweder Tab geht auf, oder wir sagen "Popup blocked".
   const onOpenSelectedInNewTab = () => {
     if (!selected) return;
+
+    let url: string | null = null;
+
     try {
-      const blob = dataUrlToBlob(selected.dataUrl);
-      const url = URL.createObjectURL(blob);
-      const w = window.open(url, "_blank", "noopener,noreferrer");
-      // revoke after a bit (enough time for the new tab to load)
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      // If popup blocked, fallback to download
-      if (!w) onDownloadSelected();
+      const blob = attachmentToPdfBlob(selected);
+      url = URL.createObjectURL(blob);
+
+      // Popup-Blocker umgehen: sofort leeren Tab öffnen (User-Gesture), dann URL setzen
+      const w = window.open("", "_blank");
+      if (!w) {
+        if (url) URL.revokeObjectURL(url);
+        window.alert(
+          "Could not open a new tab (popup blocked). Please allow popups for this site."
+        );
+        return;
+      }
+
+      try {
+        // best-effort security
+        // @ts-ignore
+        w.opener = null;
+      } catch {}
+
+      w.location.href = url;
+      w.focus?.();
+
+      window.setTimeout(() => {
+        if (url) URL.revokeObjectURL(url);
+      }, 60_000);
     } catch {
-      // fallback: try opening dataUrl directly
-      const w = window.open(selected.dataUrl, "_blank", "noopener,noreferrer");
-      if (!w) onDownloadSelected();
+      if (url) URL.revokeObjectURL(url);
+      window.alert("Open in New Tab failed. Please try again.");
     }
   };
 
@@ -309,7 +312,6 @@ export default function PdfPreviewOverlay(props: Props) {
       }}
     >
       <div
-        ref={cardRef}
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
         style={{
@@ -352,7 +354,6 @@ export default function PdfPreviewOverlay(props: Props) {
             </div>
           </div>
 
-          {/* NEW: Open in New Tab */}
           <button
             onClick={onOpenSelectedInNewTab}
             style={headerBtnStyle}
@@ -362,7 +363,6 @@ export default function PdfPreviewOverlay(props: Props) {
             Open in New Tab
           </button>
 
-          {/* NEW: Download */}
           <button
             onClick={onDownloadSelected}
             style={headerBtnStyle}
@@ -422,7 +422,7 @@ export default function PdfPreviewOverlay(props: Props) {
           ref={viewportRef}
           style={{
             flex: 1,
-            overflowY: "scroll",
+            overflowY: "scroll", // Windows-Flacker-Fix
             overflowX: "hidden",
             WebkitOverflowScrolling: "touch",
             padding: 12,
