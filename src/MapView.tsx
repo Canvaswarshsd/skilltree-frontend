@@ -2434,10 +2434,8 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
                 }
               }}
-              onPointerUp={() => {
-                clearTouchLongPress();
-                touchLongPressFiredRef.current = false;
-              }}
+              onPointerUp={(e) => onNodePointerUpMaybeOpenPdf(e, CENTER_ID)}
+
               onPointerCancel={onNodePointerCancelCommon}
               lang={document.documentElement.lang || navigator.language || "en"}
             >
