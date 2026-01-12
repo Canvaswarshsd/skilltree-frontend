@@ -422,6 +422,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   // schützt davor, dass ein Touch-LongPress (Menü) danach noch als Tap zählt
   const touchLongPressFiredRef = useRef(false);
+const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   useEffect(() => {
     if (!active) setPdfPreview(null);
@@ -2427,15 +2428,30 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                 openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
               }}
               onPointerDown={(e) => {
-                if (removeMode) return;
-                if (e.pointerType === "touch") {
-                  e.preventDefault();
-                  skipClearLongPressOnNextPointerDown.current = true;
-                  startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
-                }
-              }}
-              onPointerUp={(e) => {
-  // vorhandenes Verhalten beibehalten
+  if (removeMode) return;
+
+  // Track: Tap vs Drag
+  centerTapRef.current = { x: e.clientX, y: e.clientY, moved: false };
+
+  if (e.pointerType === "touch") {
+    e.preventDefault();
+    skipClearLongPressOnNextPointerDown.current = true;
+    startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
+  }
+}}
+onPointerMove={(e) => {
+  const d = centerTapRef.current;
+  if (!d || d.moved) return;
+  const dx = e.clientX - d.x;
+  const dy = e.clientY - d.y;
+  if (Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) d.moved = true;
+}}
+
+   onPointerUp={(e) => {
+  const longPressOpened = touchLongPressFiredRef.current;
+  const d = centerTapRef.current;
+  centerTapRef.current = null;
+
   clearTouchLongPress();
   touchLongPressFiredRef.current = false;
 
@@ -2446,9 +2462,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const isPrimary = e.pointerType === "touch" || e.button === 0;
   if (!isPrimary) return;
 
-  // Öffnet den Viewer NUR wenn PDFs existieren (openPdfPreviewForNode macht das selbst)
+  // Wenn Long-Press-Menü aufging: nicht öffnen
+  if (longPressOpened) return;
+
+  // Wenn du gepannt/gezogen hast: nicht öffnen
+  if (d?.moved) return;
+
   openPdfPreviewForNode(CENTER_ID);
 }}
+
 
               onPointerCancel={onNodePointerCancelCommon}
               lang={document.documentElement.lang || navigator.language || "en"}
