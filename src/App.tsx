@@ -2,19 +2,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
-import MapView, { MapApi, Task as MapTask } from "./MapView";
+import MapView, { MapApi, Task as MapTask, type TaskAttachment } from "./MapView";
 import AboutView from "./views/AboutView";
 import { Analytics } from "@vercel/analytics/react";
 
 type Task = MapTask;
-
-// ✅ Center PDF Attachments müssen im App-State leben, sonst werden sie nicht gespeichert
-export type TaskAttachment = {
-  id: string;
-  name: string;
-  mime: string;
-  dataUrl: string;
-};
 
 type SavedState = {
   v: 1;
@@ -27,7 +19,7 @@ type SavedState = {
   branchColorOverride?: Record<string, string>;
   centerColor?: string;
 
-  // ✅ NEU: Center Attachments persistent speichern
+  // ✅ NEU: PDFs am Center-Node (Project title)
   centerAttachments?: TaskAttachment[];
 };
 
@@ -77,9 +69,7 @@ const serializeState = (
   ts: Date.now(),
   branchColorOverride,
   centerColor,
-
-  // ✅ NEU
-  centerAttachments,
+  centerAttachments, // ✅ NEU
 });
 
 function isDescendant(
@@ -95,18 +85,12 @@ function isDescendant(
   return false;
 }
 
-/**
- * About View (ausgelagert als eigene Komponente, damit wir das About-Layout später
- * sauber in ein separates Script (z.B. src/views/AboutView.tsx) verschieben können).
- * Aktuell bewusst leer => weißer Hintergrund, kein Placeholder.
- */
-
 export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"edit" | "map" | "about">("edit");
 
-  // ✅ NEU: Center Attachments im App-State (damit Save/Open sie mitnimmt)
+  // ✅ Center-Node PDFs: State in App (damit Save/Open es persistiert)
   const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
     []
   );
@@ -374,7 +358,7 @@ export default function App() {
       scale,
       branchColorOverride,
       centerColor,
-      centerAttachments
+      centerAttachments // ✅ NEU
     );
     try {
       if (fileHandle && "createWritable" in fileHandle) {
@@ -401,7 +385,7 @@ export default function App() {
       scale,
       branchColorOverride,
       centerColor,
-      centerAttachments
+      centerAttachments // ✅ NEU
     );
     try {
       if ("showSaveFilePicker" in window) {
@@ -447,8 +431,12 @@ export default function App() {
     setBranchColorOverride(obj.branchColorOverride ?? {});
     setCenterColor(obj.centerColor ?? "#020617");
 
-    // ✅ NEU: Center Attachments laden (Backwards compatible)
-    setCenterAttachments(Array.isArray(obj.centerAttachments) ? obj.centerAttachments : []);
+    // ✅ NEU: Center PDFs laden (fallback leeres Array)
+    setCenterAttachments(
+      Array.isArray(obj.centerAttachments)
+        ? (obj.centerAttachments as TaskAttachment[])
+        : []
+    );
 
     clearRemoveMode();
     setView("map");
@@ -681,13 +669,14 @@ export default function App() {
             setBranchColorOverride={setBranchColorOverride}
             centerColor={centerColor}
             setCenterColor={setCenterColor}
+
+            // ✅ NEU: Center PDFs als controlled Props
+            centerAttachments={centerAttachments}
+            setCenterAttachments={setCenterAttachments}
+
             removeMode={removeMode}
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
-
-            // ✅ NEU: Center Attachments an MapView durchreichen
-            centerAttachments={centerAttachments}
-            setCenterAttachments={setCenterAttachments}
           />
         </div>
 
