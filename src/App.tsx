@@ -8,6 +8,14 @@ import { Analytics } from "@vercel/analytics/react";
 
 type Task = MapTask;
 
+// ✅ Center PDF Attachments müssen im App-State leben, sonst werden sie nicht gespeichert
+export type TaskAttachment = {
+  id: string;
+  name: string;
+  mime: string;
+  dataUrl: string;
+};
+
 type SavedState = {
   v: 1;
   projectTitle: string;
@@ -18,6 +26,9 @@ type SavedState = {
   ts: number;
   branchColorOverride?: Record<string, string>;
   centerColor?: string;
+
+  // ✅ NEU: Center Attachments persistent speichern
+  centerAttachments?: TaskAttachment[];
 };
 
 const makeId = () => Math.random().toString(36).slice(2, 9);
@@ -54,7 +65,8 @@ const serializeState = (
   pan: { x: number; y: number },
   scale: number,
   branchColorOverride: Record<string, string>,
-  centerColor: string
+  centerColor: string,
+  centerAttachments: TaskAttachment[]
 ): SavedState => ({
   v: 1,
   projectTitle,
@@ -65,6 +77,9 @@ const serializeState = (
   ts: Date.now(),
   branchColorOverride,
   centerColor,
+
+  // ✅ NEU
+  centerAttachments,
 });
 
 function isDescendant(
@@ -90,6 +105,11 @@ export default function App() {
   const [projectTitle, setProjectTitle] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"edit" | "map" | "about">("edit");
+
+  // ✅ NEU: Center Attachments im App-State (damit Save/Open sie mitnimmt)
+  const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
+    []
+  );
 
   // iPhone-only fix: render dropdown menus via portal (avoid iOS Safari fixed-in-scrollcontainer bug)
   const isIPhone = useMemo(() => {
@@ -353,7 +373,8 @@ export default function App() {
       pan,
       scale,
       branchColorOverride,
-      centerColor
+      centerColor,
+      centerAttachments
     );
     try {
       if (fileHandle && "createWritable" in fileHandle) {
@@ -379,7 +400,8 @@ export default function App() {
       pan,
       scale,
       branchColorOverride,
-      centerColor
+      centerColor,
+      centerAttachments
     );
     try {
       if ("showSaveFilePicker" in window) {
@@ -424,6 +446,10 @@ export default function App() {
     setNodeOffset(obj.nodeOffset ?? {});
     setBranchColorOverride(obj.branchColorOverride ?? {});
     setCenterColor(obj.centerColor ?? "#020617");
+
+    // ✅ NEU: Center Attachments laden (Backwards compatible)
+    setCenterAttachments(Array.isArray(obj.centerAttachments) ? obj.centerAttachments : []);
+
     clearRemoveMode();
     setView("map");
   }
@@ -658,6 +684,10 @@ export default function App() {
             removeMode={removeMode}
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
+
+            // ✅ NEU: Center Attachments an MapView durchreichen
+            centerAttachments={centerAttachments}
+            setCenterAttachments={setCenterAttachments}
           />
         </div>
 

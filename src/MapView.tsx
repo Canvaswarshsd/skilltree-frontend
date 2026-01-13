@@ -62,6 +62,11 @@ type MapViewProps = {
 
   centerColor: string;
   setCenterColor: React.Dispatch<React.SetStateAction<string>>;
+  
+    // ✅ NEU: Center-Node (Project title) Attachments – kommt aus App.tsx (Save/Open)
+  centerAttachments: TaskAttachment[];
+  setCenterAttachments: React.Dispatch<React.SetStateAction<TaskAttachment[]>>;
+
 
   // für Child-Einzelfarben + Done + Attachments:
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
@@ -336,6 +341,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     removeSelection,
     onToggleRemoveTarget,
     active = true,
+	  centerAttachments,
+  setCenterAttachments,
+
   } = props;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -392,11 +400,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   /* ---------- Attachments Helper ---------- */
 
-  const getAttachmentsForNode = (nodeId: string): TaskAttachment[] => {
-    if (nodeId === CENTER_ID) return centerAttachments;
-    const t = getTask(nodeId);
-    return t?.attachments ?? [];
-  };
+  const getAttachmentsForNode = (nodeId: string) => {
+  if (nodeId === CENTER_ID) return centerAttachments ?? [];
+  const t = tasks.find((x) => x.id === nodeId);
+  return t?.attachments ?? [];
+};
+
 
   const setAttachmentsForNode = (
     nodeId: string,
