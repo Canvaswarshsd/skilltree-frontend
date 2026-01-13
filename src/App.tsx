@@ -2,11 +2,19 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
-import MapView, { MapApi, Task as MapTask, type TaskAttachment } from "./MapView";
+import MapView, { MapApi, Task as MapTask } from "./MapView";
 import AboutView from "./views/AboutView";
 import { Analytics } from "@vercel/analytics/react";
 
 type Task = MapTask;
+
+// ✅ gleiche Shape wie in MapView/PdfPreviewOverlay
+type TaskAttachment = {
+  id: string;
+  name: string;
+  mime: string;
+  dataUrl: string;
+};
 
 type SavedState = {
   v: 1;
@@ -19,7 +27,7 @@ type SavedState = {
   branchColorOverride?: Record<string, string>;
   centerColor?: string;
 
-  // ✅ NEU: PDFs am Center-Node (Project title)
+  // ✅ NEU: Center-Node Attachments persistieren
   centerAttachments?: TaskAttachment[];
 };
 
@@ -90,11 +98,6 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"edit" | "map" | "about">("edit");
 
-  // ✅ Center-Node PDFs: State in App (damit Save/Open es persistiert)
-  const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
-    []
-  );
-
   // iPhone-only fix: render dropdown menus via portal (avoid iOS Safari fixed-in-scrollcontainer bug)
   const isIPhone = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -118,6 +121,11 @@ export default function App() {
     Record<string, string>
   >({});
   const [centerColor, setCenterColor] = useState<string>("#020617");
+
+  // ✅ NEU: Center-Node PDFs (controlled + gespeichert)
+  const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
+    []
+  );
 
   // Remove-Modus (gemeinsam für Edit + Visualize)
   const [removeMode, setRemoveMode] = useState(false);
@@ -358,7 +366,7 @@ export default function App() {
       scale,
       branchColorOverride,
       centerColor,
-      centerAttachments // ✅ NEU
+      centerAttachments
     );
     try {
       if (fileHandle && "createWritable" in fileHandle) {
@@ -385,7 +393,7 @@ export default function App() {
       scale,
       branchColorOverride,
       centerColor,
-      centerAttachments // ✅ NEU
+      centerAttachments
     );
     try {
       if ("showSaveFilePicker" in window) {
@@ -431,11 +439,9 @@ export default function App() {
     setBranchColorOverride(obj.branchColorOverride ?? {});
     setCenterColor(obj.centerColor ?? "#020617");
 
-    // ✅ NEU: Center PDFs laden (fallback leeres Array)
+    // ✅ NEU (backwards compatible): alte Files haben das Feld nicht
     setCenterAttachments(
-      Array.isArray(obj.centerAttachments)
-        ? (obj.centerAttachments as TaskAttachment[])
-        : []
+      Array.isArray(obj.centerAttachments) ? (obj.centerAttachments as any) : []
     );
 
     clearRemoveMode();
@@ -582,7 +588,6 @@ export default function App() {
             {removeMode ? "Removing" : "Remove Task"}
           </button>
 
-          {/* ✅ Reihenfolge geändert: Edit → Visualize → Save */}
           <button
             className={view === "edit" ? "view-btn active" : "view-btn"}
             onClick={switchToEdit}
@@ -651,7 +656,6 @@ export default function App() {
       )}
 
       <div className="body">
-        {/* MapView bleibt IMMER gemountet (Export funktioniert auch im Edit) */}
         <div className={"map-host" + (view === "map" ? "" : " map-host-hidden")}>
           <MapView
             ref={mapRef}
@@ -669,11 +673,9 @@ export default function App() {
             setBranchColorOverride={setBranchColorOverride}
             centerColor={centerColor}
             setCenterColor={setCenterColor}
-
-            // ✅ NEU: Center PDFs als controlled Props
+            // ✅ NEU
             centerAttachments={centerAttachments}
             setCenterAttachments={setCenterAttachments}
-
             removeMode={removeMode}
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
