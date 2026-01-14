@@ -351,10 +351,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   // Done-Status für das Projekt
   const [centerDone, setCenterDone] = useState<boolean>(false);
 
-  // Attachments für den Center-Node (Project)
-  const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
-    []
-  );
+  
 
   // Linien-Farben:
   const [branchEdgeColorOverride, setBranchEdgeColorOverride] = useState<
