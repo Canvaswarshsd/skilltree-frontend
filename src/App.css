@@ -14,7 +14,7 @@ html, body { overflow: hidden; }
   --muted: #64748b;
 
   --border: rgba(15, 23, 42, 0.12);
-  --border-strong: rgba(15, 23, 42, 0.18);
+  --border-strong: rgba(15, 23, 42, 0.22);
 
   --shadow-sm: 0 2px 10px rgba(2, 6, 23, 0.06);
   --shadow: 0 10px 30px rgba(2, 6, 23, 0.08);
@@ -37,7 +37,7 @@ html, body { overflow: hidden; }
   display: flex; 
   flex-direction: column; 
   background: var(--bg);
-  color: #fff; /* bewusst beibehalten: viele Overlays/Map/Topbar sind white-on-dark */
+  color: #fff; /* Default: helle Schrift (z.B. About auf dunklem Background) */
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; 
 }
 
@@ -181,7 +181,7 @@ html, body { overflow: hidden; }
 }
 
 /* =========================
-   Edit view (Hochwertige Liste statt grauer Balken)
+   Edit view (Task Liste)
    ========================= */
 .task-list { 
   flex: 1; 
@@ -192,12 +192,15 @@ html, body { overflow: hidden; }
   -webkit-overflow-scrolling: touch; 
   overscroll-behavior: contain;
 
-  /* Wichtig: Edit-Bereich wirkt "app-like" und hochwertig */
   background: var(--surface);
-  color: var(--text);
+
+  /* WICHTIG: hier keine dunkle Farbe global setzen,
+     sonst wird About (dunkler Background) unlesbar */
+  color: inherit;
 }
 
-.section-title { 
+/* Titel in der Edit-Liste dunkel (gescoped) */
+.task-list .section-title { 
   font-size: .95rem; 
   margin: 0 auto .9rem;
   max-width: 980px;
@@ -205,14 +208,18 @@ html, body { overflow: hidden; }
   letter-spacing: .01em;
 }
 
-/* Task row: jetzt "List Item / Card" */
+/* =========================
+   Task Row (Karte)
+   ========================= */
 .task-row {
   position: relative;
   background: var(--card);
-  border: 1px solid var(--border);
+
+  /* Änderung: klarere Umrandung */
+  border: 1px solid var(--border-strong);
+
   border-radius: var(--radius);
 
-  /* Touch-friendly */
   min-height: 48px;
   padding: .62rem .85rem;
   padding-right: 2.25rem;
@@ -221,7 +228,6 @@ html, body { overflow: hidden; }
   align-items: center;
   gap: .65rem;
 
-  /* Zentrierte Lesebreite */
   width: 100%;
   max-width: 980px;
   margin: 0 auto .55rem;
@@ -229,32 +235,41 @@ html, body { overflow: hidden; }
   cursor: default;
   touch-action: pan-y;
 
-  /* Hierarchie-Indent bleibt via CSS-Variable aus deinem Code */
   --base-indent: 28px;
 
-  box-shadow: var(--shadow-sm);
+  /* Text in den Task-Karten dunkel, ohne About zu beeinflussen */
+  color: var(--text);
+
+  /* "wertige Kante" */
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.65) inset,
+    var(--shadow-sm);
+
   transition: border-color .15s ease, box-shadow .18s ease, transform .05s ease, background .15s ease;
 }
 
-/* dezente Hover/Focus-Qualität (nicht aufdringlich) */
 .task-row:hover{
-  border-color: rgba(15,23,42,.18);
-  box-shadow: 0 6px 18px rgba(2,6,23,.08);
-}
-.task-row:focus-within{
-  border-color: rgba(56,189,248,.65);
-  box-shadow: 0 0 0 2px rgba(56,189,248,.20), 0 10px 24px rgba(2,6,23,.10);
+  border-color: rgba(15, 23, 42, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.70) inset,
+    0 6px 18px rgba(2,6,23,.08);
 }
 
-/* unsichtbarer Spacer (Content weiter rechts) – jetzt mit subtiler Guideline */
+.task-row:focus-within{
+  border-color: rgba(56,189,248,.70);
+  box-shadow:
+    0 0 0 2px rgba(56,189,248,.18),
+    0 0 0 1px rgba(255,255,255,0.70) inset,
+    0 10px 24px rgba(2,6,23,.10);
+}
+
+/* Indent Spacer + sehr subtile Guideline */
 .task-row::before {
   content: "";
   display: block;
   flex: 0 0 var(--base-indent);
   align-self: stretch;
   border-radius: 10px;
-
-  /* sehr subtile vertikale Linie am rechten Rand des Indent-Bereichs */
   background:
     linear-gradient(
       to right,
@@ -265,7 +280,7 @@ html, body { overflow: hidden; }
     );
 }
 
-/* rechter "More/Grip"-Look statt gestricheltem Platzhalter-Kästchen */
+/* rechter "More/Grip"-Look (3 Punkte) */
 .task-row::after {
   content: "";
   position: absolute;
@@ -275,8 +290,6 @@ html, body { overflow: hidden; }
   width: 14px;
   height: 18px;
   opacity: .35;
-
-  /* 3 vertikale Punkte (Safari-safe) */
   background:
     radial-gradient(circle at 50% 3px, rgba(100,116,139,.95) 2px, transparent 2.6px),
     radial-gradient(circle at 50% 9px, rgba(100,116,139,.95) 2px, transparent 2.6px),
@@ -290,7 +303,7 @@ html, body { overflow: hidden; }
   border-color: rgba(15,23,42,.22);
 }
 
-/* Bullet/Handle: wertiger, klarer */
+/* Bullet/Handle */
 .task-bullet { 
   width: 10px; height: 10px; 
   background: rgba(15,23,42,.22); 
@@ -301,7 +314,7 @@ html, body { overflow: hidden; }
   box-shadow: 0 0 0 3px rgba(15,23,42,.06);
 }
 
-/* Input: jetzt dunkel, besser lesbar */
+/* Input */
 .task-input { 
   background: transparent;
   border: none;
@@ -309,7 +322,6 @@ html, body { overflow: hidden; }
   font-size: .95rem;
   font-weight: 600;
 
-  /* Wichtig: nicht zu schmal + kein Overflow */
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -323,25 +335,29 @@ html, body { overflow: hidden; }
 .task-parent-label { 
   font-size: .72rem; 
   color: rgba(100,116,139,.85);
-  opacity: 1;
   white-space: nowrap;
 }
 
-/* Drop hover (Drag&Drop Target) */
+/* Drop hover */
 .task-row.drop-hover {
   border-color: rgba(56,189,248,.85);
-  box-shadow: 0 0 0 2px rgba(56,189,248,.18), 0 10px 24px rgba(2,6,23,.10);
+  box-shadow:
+    0 0 0 2px rgba(56,189,248,.18),
+    0 0 0 1px rgba(255,255,255,0.70) inset,
+    0 10px 24px rgba(2,6,23,.10);
   background: rgba(56,189,248,.06);
 }
 
-/* Remove-Mode in der Edit-Ansicht */
+/* Remove-Mode */
 .task-row-remove-mode { cursor: pointer; }
 .task-row-remove-mode:hover{
   border-color: rgba(239,68,68,.55);
-  box-shadow: 0 0 0 2px rgba(239,68,68,.12), 0 10px 24px rgba(2,6,23,.10);
+  box-shadow:
+    0 0 0 2px rgba(239,68,68,.12),
+    0 0 0 1px rgba(255,255,255,0.70) inset,
+    0 10px 24px rgba(2,6,23,.10);
 }
 
-/* Selected (Remove) – kräftig, aber sauber */
 .task-row-remove-selected {
   background: rgba(239, 68, 68, 0.92);
   border-color: rgba(248, 250, 252, 0.85);
@@ -460,7 +476,7 @@ html, body { overflow: hidden; }
 }
 .ctxmenu-swatch:hover { transform: translateY(-1px); }
 
-/* Utility: Wörter niemals trennen (für "Verzeihworte") */
+/* Utility: Wörter niemals trennen */
 .no-hyphen {
   hyphens: none !important;
   -webkit-hyphens: none !important;
@@ -667,7 +683,6 @@ html, body { overflow: hidden; }
 
 /* =========================
    iPhone rotation fix (robust): avoid sticky/100vh issues on iPhone Safari
-   Paste at the VERY end of App.css
    ========================= */
 @supports (-webkit-touch-callout: none) {
   @media (hover: none) and (pointer: coarse) and (max-width: 600px),
