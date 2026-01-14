@@ -717,3 +717,22 @@ html, body { overflow: hidden; }
     }
   }
 }
+
+/* =========================
+   Innocent first Visualize (Center clean)
+   (aktiv, wenn App.tsx die Klasse "app-center-innocent" setzt)
+   ========================= */
+.app.app-center-innocent .skill-node.center-node{
+  background: #ffffff;
+  border: 2px solid rgba(15,23,42,.12);
+  color: rgba(2,6,23,.92);
+
+  box-shadow:
+    0 12px 36px rgba(0,0,0,.18),
+    0 0 0 2px rgba(186, 230, 253, .95) inset,
+    0 0 46px rgba(56,189,248,.20);
+}
+
+.app.app-center-innocent .skill-node.center-node .done-badge{
+  box-shadow: 0 0 0 1px rgba(4,7,15,.25), 0 6px 18px rgba(0,0,0,.20);
+}

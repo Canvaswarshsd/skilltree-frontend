@@ -29,6 +29,10 @@ type SavedState = {
 
   // ✅ NEU: Center-Node Attachments persistieren
   centerAttachments?: TaskAttachment[];
+
+  // ✅ NEU: damit der “unschuldige” Start-Look nur gilt,
+  // solange der User den Center nicht bewusst eingefärbt hat
+  centerColorCustomized?: boolean;
 };
 
 const makeId = () => Math.random().toString(36).slice(2, 9);
@@ -58,6 +62,9 @@ function downloadJSON(filename: string, data: unknown) {
   URL.revokeObjectURL(url);
 }
 
+// ✅ “Innocent start” Default (clean statt schwarz)
+const INNOCENT_CENTER_COLOR = "#ffffff";
+
 const serializeState = (
   projectTitle: string,
   tasks: Task[],
@@ -66,7 +73,8 @@ const serializeState = (
   scale: number,
   branchColorOverride: Record<string, string>,
   centerColor: string,
-  centerAttachments: TaskAttachment[]
+  centerAttachments: TaskAttachment[],
+  centerColorCustomized: boolean
 ): SavedState => ({
   v: 1,
   projectTitle,
@@ -77,7 +85,8 @@ const serializeState = (
   ts: Date.now(),
   branchColorOverride,
   centerColor,
-  centerAttachments, // ✅ NEU
+  centerAttachments,
+  centerColorCustomized,
 });
 
 function isDescendant(
@@ -120,7 +129,22 @@ export default function App() {
   const [branchColorOverride, setBranchColorOverride] = useState<
     Record<string, string>
   >({});
-  const [centerColor, setCenterColor] = useState<string>("#020617");
+
+  // ✅ Center Color: default clean (white) statt schwarz
+  const [centerColorRaw, setCenterColorRaw] = useState<string>(
+    INNOCENT_CENTER_COLOR
+  );
+
+  // ✅ solange false, bekommt der Center “unschuldig”-Glow (CSS via .app-center-innocent)
+  const [centerColorCustomized, setCenterColorCustomized] = useState(false);
+
+  // ✅ Setter, den wir MapView geben: sobald User im Menu eine Farbe setzt, wird customized = true
+  const setCenterColorFromUser: React.Dispatch<React.SetStateAction<string>> = (
+    next
+  ) => {
+    setCenterColorCustomized(true);
+    setCenterColorRaw(next);
+  };
 
   // ✅ NEU: Center-Node PDFs (controlled + gespeichert)
   const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
@@ -365,8 +389,9 @@ export default function App() {
       pan,
       scale,
       branchColorOverride,
-      centerColor,
-      centerAttachments
+      centerColorRaw,
+      centerAttachments,
+      centerColorCustomized
     );
     try {
       if (fileHandle && "createWritable" in fileHandle) {
@@ -392,8 +417,9 @@ export default function App() {
       pan,
       scale,
       branchColorOverride,
-      centerColor,
-      centerAttachments
+      centerColorRaw,
+      centerAttachments,
+      centerColorCustomized
     );
     try {
       if ("showSaveFilePicker" in window) {
@@ -431,13 +457,36 @@ export default function App() {
       alert("Could not open file. Is this a valid .taskmap.json?");
       return;
     }
+
     setProjectTitle(String(obj.projectTitle ?? "Project"));
     setTasks(obj.tasks as Task[]);
     setPan(obj.pan ?? { x: 0, y: 0 });
     setScale(typeof obj.scale === "number" ? obj.scale : 1);
     setNodeOffset(obj.nodeOffset ?? {});
     setBranchColorOverride(obj.branchColorOverride ?? {});
-    setCenterColor(obj.centerColor ?? "#020617");
+
+    // ✅ Backwards compatible:
+    // - alte Files: centerColor fehlt ODER war default "#020617" -> jetzt “unschuldig” weiß
+    const loadedCenterColor =
+      typeof obj.centerColor === "string" ? obj.centerColor : "";
+    const norm = loadedCenterColor.trim().toLowerCase();
+    const isOldDefaultBlack = norm === "#020617";
+    const nextCenterColor =
+      !norm || isOldDefaultBlack ? INNOCENT_CENTER_COLOR : loadedCenterColor;
+
+    setCenterColorRaw(nextCenterColor);
+
+    // ✅ customized-Flag:
+    // - wenn Datei es enthält: respektieren
+    // - sonst: nur dann als customized werten, wenn Center wirklich nicht “default” ist
+    if (typeof obj.centerColorCustomized === "boolean") {
+      setCenterColorCustomized(obj.centerColorCustomized);
+    } else {
+      const n2 = nextCenterColor.trim().toLowerCase();
+      setCenterColorCustomized(
+        !(n2 === INNOCENT_CENTER_COLOR.toLowerCase())
+      );
+    }
 
     // ✅ NEU (backwards compatible): alte Files haben das Feld nicht
     setCenterAttachments(
@@ -553,7 +602,11 @@ export default function App() {
     ) : null;
 
   return (
-    <div className="app">
+    <div
+      className={
+        "app" + (centerColorCustomized ? "" : " app-center-innocent")
+      }
+    >
       <header className="topbar" data-nosnippet>
         <div className="topbar-scroll" data-nosnippet>
           <input
@@ -671,9 +724,9 @@ export default function App() {
             setScale={setScale}
             branchColorOverride={branchColorOverride}
             setBranchColorOverride={setBranchColorOverride}
-            centerColor={centerColor}
-            setCenterColor={setCenterColor}
-            // ✅ NEU
+            centerColor={centerColorRaw}
+            setCenterColor={setCenterColorFromUser}
+            // ✅ Center Attachments
             centerAttachments={centerAttachments}
             setCenterAttachments={setCenterAttachments}
             removeMode={removeMode}
