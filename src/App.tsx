@@ -27,6 +27,10 @@ type SavedState = {
   branchColorOverride?: Record<string, string>;
   centerColor?: string;
 
+  // ✅ NEU: Edge-Farben persistieren (Linien-Overrides)
+  branchEdgeColorOverride?: Record<string, string>;
+  edgeColorOverride?: Record<string, string>;
+
   // ✅ NEU: Center-Node Attachments persistieren
   centerAttachments?: TaskAttachment[];
 
@@ -73,6 +77,9 @@ const serializeState = (
   scale: number,
   branchColorOverride: Record<string, string>,
   centerColor: string,
+  // ✅ NEU: Edge overrides
+  branchEdgeColorOverride: Record<string, string>,
+  edgeColorOverride: Record<string, string>,
   centerAttachments: TaskAttachment[],
   centerColorCustomized: boolean
 ): SavedState => ({
@@ -85,6 +92,11 @@ const serializeState = (
   ts: Date.now(),
   branchColorOverride,
   centerColor,
+
+  // ✅ NEU: Edge overrides
+  branchEdgeColorOverride,
+  edgeColorOverride,
+
   centerAttachments,
   centerColorCustomized,
 });
@@ -127,6 +139,14 @@ export default function App() {
     Record<string, { x: number; y: number }>
   >({});
   const [branchColorOverride, setBranchColorOverride] = useState<
+    Record<string, string>
+  >({});
+
+  // ✅ NEU: Edge-Overrides (Linienfarben) als App-State, damit Save/Open sie mitnimmt
+  const [branchEdgeColorOverride, setBranchEdgeColorOverride] = useState<
+    Record<string, string>
+  >({});
+  const [edgeColorOverride, setEdgeColorOverride] = useState<
     Record<string, string>
   >({});
 
@@ -390,6 +410,9 @@ export default function App() {
       scale,
       branchColorOverride,
       centerColorRaw,
+      // ✅ NEU: Edge overrides
+      branchEdgeColorOverride,
+      edgeColorOverride,
       centerAttachments,
       centerColorCustomized
     );
@@ -418,6 +441,9 @@ export default function App() {
       scale,
       branchColorOverride,
       centerColorRaw,
+      // ✅ NEU: Edge overrides
+      branchEdgeColorOverride,
+      edgeColorOverride,
       centerAttachments,
       centerColorCustomized
     );
@@ -465,6 +491,10 @@ export default function App() {
     setNodeOffset(obj.nodeOffset ?? {});
     setBranchColorOverride(obj.branchColorOverride ?? {});
 
+    // ✅ NEU (backwards compatible): Edge overrides
+    setBranchEdgeColorOverride(obj.branchEdgeColorOverride ?? {});
+    setEdgeColorOverride(obj.edgeColorOverride ?? {});
+
     // ✅ Backwards compatible:
     // - alte Files: centerColor fehlt ODER war default "#020617" -> jetzt “unschuldig” weiß
     const loadedCenterColor =
@@ -483,9 +513,7 @@ export default function App() {
       setCenterColorCustomized(obj.centerColorCustomized);
     } else {
       const n2 = nextCenterColor.trim().toLowerCase();
-      setCenterColorCustomized(
-        !(n2 === INNOCENT_CENTER_COLOR.toLowerCase())
-      );
+      setCenterColorCustomized(!(n2 === INNOCENT_CENTER_COLOR.toLowerCase()));
     }
 
     // ✅ NEU (backwards compatible): alte Files haben das Feld nicht
@@ -602,11 +630,7 @@ export default function App() {
     ) : null;
 
   return (
-    <div
-      className={
-        "app" + (centerColorCustomized ? "" : " app-center-innocent")
-      }
-    >
+    <div className={"app" + (centerColorCustomized ? "" : " app-center-innocent")}>
       <header className="topbar" data-nosnippet>
         <div className="topbar-scroll" data-nosnippet>
           <input
@@ -656,11 +680,7 @@ export default function App() {
           </button>
 
           <div className="save-wrap">
-            <button
-              ref={saveBtnRef}
-              className="btn btn-save"
-              onClick={toggleSaveMenu}
-            >
+            <button ref={saveBtnRef} className="btn btn-save" onClick={toggleSaveMenu}>
               Save
             </button>
             {isIPhone
@@ -675,11 +695,7 @@ export default function App() {
           </button>
 
           <div className="save-wrap">
-            <button
-              ref={downloadBtnRef}
-              className="view-btn"
-              onClick={toggleDownloadMenu}
-            >
+            <button ref={downloadBtnRef} className="view-btn" onClick={toggleDownloadMenu}>
               Download
             </button>
             {isIPhone
@@ -729,6 +745,11 @@ export default function App() {
             // ✅ Center Attachments
             centerAttachments={centerAttachments}
             setCenterAttachments={setCenterAttachments}
+            // ✅ NEU: Edge overrides (Linienfarben)
+            branchEdgeColorOverride={branchEdgeColorOverride}
+            setBranchEdgeColorOverride={setBranchEdgeColorOverride}
+            edgeColorOverride={edgeColorOverride}
+            setEdgeColorOverride={setEdgeColorOverride}
             removeMode={removeMode}
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
@@ -879,10 +900,7 @@ function Row({
           onToggleRemoveTarget(task.id);
         }}
       >
-        <span
-          className="drag-handle left"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle left" onPointerDown={handlePointerDownDragZone} />
         <span
           className="task-bullet"
           style={{ backgroundColor: "#000000" }}
@@ -902,10 +920,7 @@ function Row({
           readOnly={removeMode}
         />
         {task.parentId && <span className="task-parent-label"></span>}
-        <span
-          className="drag-handle right"
-          onPointerDown={handlePointerDownDragZone}
-        />
+        <span className="drag-handle right" onPointerDown={handlePointerDownDragZone} />
       </div>
 
       {children.map((c) => (
