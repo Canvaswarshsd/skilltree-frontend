@@ -324,27 +324,33 @@ type ExportLayout = {
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const {
-    projectTitle,
-    tasks,
-    nodeOffset,
-    setNodeOffset,
-    pan,
-    setPan,
-    scale,
-    setScale,
-    branchColorOverride,
-    setBranchColorOverride,
-    centerColor,
-    setCenterColor,
-    setTasks,
-    removeMode,
-    removeSelection,
-    onToggleRemoveTarget,
-    active = true,
-	  centerAttachments,
+  projectTitle,
+  tasks,
+  nodeOffset,
+  setNodeOffset,
+  pan,
+  setPan,
+  scale,
+  setScale,
+  branchColorOverride,
+  setBranchColorOverride,
+  centerColor,
+  setCenterColor,
+  setTasks,
+  removeMode,
+  removeSelection,
+  onToggleRemoveTarget,
+  active = true,
+  centerAttachments,
   setCenterAttachments,
 
-  } = props;
+  // ✅ Edge colors kommen jetzt aus App (falls App noch nicht updated ist: sichere Defaults)
+  branchEdgeColorOverride = {},
+  setBranchEdgeColorOverride = (() => {}) as any,
+  edgeColorOverride = {},
+  setEdgeColorOverride = (() => {}) as any,
+} = props as any;
+
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -353,13 +359,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   
 
-  // Linien-Farben:
-  const [branchEdgeColorOverride, setBranchEdgeColorOverride] = useState<
-    Record<string, string>
-  >({});
-  const [edgeColorOverride, setEdgeColorOverride] = useState<
-    Record<string, string>
-  >({});
+ 
 
   /* ----- Helper ----- */
   const roots = useMemo(() => tasks.filter((t) => t.parentId === null), [tasks]);
