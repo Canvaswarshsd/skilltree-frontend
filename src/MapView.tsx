@@ -26,6 +26,10 @@ export type Task = {
   color?: string; // individuelle Node-Farbe (nur Kreis)
   done?: boolean; // manueller Done-Status (Vererbung wie bei Farben)
   attachments?: TaskAttachment[]; // PDFs pro Task
+
+  // ✅ Notes
+  note?: string; // Notiztext
+  notePinned?: boolean; // true = immer sichtbar, false/undefined = nur bei Hover
 };
 
 export type MapApi = {
@@ -62,11 +66,10 @@ type MapViewProps = {
 
   centerColor: string;
   setCenterColor: React.Dispatch<React.SetStateAction<string>>;
-  
-    // ✅ NEU: Center-Node (Project title) Attachments – kommt aus App.tsx (Save/Open)
+
+  // ✅ NEU: Center-Node (Project title) Attachments – kommt aus App.tsx (Save/Open)
   centerAttachments: TaskAttachment[];
   setCenterAttachments: React.Dispatch<React.SetStateAction<TaskAttachment[]>>;
-
 
   // für Child-Einzelfarben + Done + Attachments:
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
@@ -284,9 +287,7 @@ const edgeKey = (parentId: string, childId: string) => `${parentId}__${childId}`
 
 /* ID-Helfer für Attachments */
 function makeId() {
-  return `${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /* ---------- Export Layout Types ---------- */
@@ -324,42 +325,44 @@ type ExportLayout = {
 /* ---------- MapView ---------- */
 const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const {
-  projectTitle,
-  tasks,
-  nodeOffset,
-  setNodeOffset,
-  pan,
-  setPan,
-  scale,
-  setScale,
-  branchColorOverride,
-  setBranchColorOverride,
-  centerColor,
-  setCenterColor,
-  setTasks,
-  removeMode,
-  removeSelection,
-  onToggleRemoveTarget,
-  active = true,
-  centerAttachments,
-  setCenterAttachments,
+    projectTitle,
+    tasks,
+    nodeOffset,
+    setNodeOffset,
+    pan,
+    setPan,
+    scale,
+    setScale,
+    branchColorOverride,
+    setBranchColorOverride,
+    centerColor,
+    setCenterColor,
+    setTasks,
+    removeMode,
+    removeSelection,
+    onToggleRemoveTarget,
+    active = true,
+    centerAttachments,
+    setCenterAttachments,
 
-  // ✅ Edge colors kommen jetzt aus App (falls App noch nicht updated ist: sichere Defaults)
-  branchEdgeColorOverride = {},
-  setBranchEdgeColorOverride = (() => {}) as any,
-  edgeColorOverride = {},
-  setEdgeColorOverride = (() => {}) as any,
-} = props as any;
-
+    // ✅ Edge colors kommen jetzt aus App (falls App noch nicht updated ist: sichere Defaults)
+    branchEdgeColorOverride = {},
+    setBranchEdgeColorOverride = (() => {}) as any,
+    edgeColorOverride = {},
+    setEdgeColorOverride = (() => {}) as any,
+  } = props as any;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Done-Status für das Projekt
   const [centerDone, setCenterDone] = useState<boolean>(false);
 
-  
+  // ✅ Notes (Center)
+  const [centerNote, setCenterNote] = useState<string>("");
+  const [centerNotePinned, setCenterNotePinned] = useState<boolean>(false);
 
- 
+  // ✅ Notes Hover Tracking (für "Hover"-Mode)
+  const [hoverNoteId, setHoverNoteId] = useState<string | null>(null);
 
   /* ----- Helper ----- */
   const roots = useMemo(() => tasks.filter((t) => t.parentId === null), [tasks]);
@@ -395,14 +398,41 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const progressPercent =
     totalTasks === 0 ? 0 : Math.round((doneCount / totalTasks) * 100);
 
+  /* ---------- Notes Helper ---------- */
+
+  const getNoteForNode = (nodeId: string): { text: string; pinned: boolean } => {
+    if (nodeId === CENTER_ID) {
+      return { text: centerNote || "", pinned: !!centerNotePinned };
+    }
+    const t = tasks.find((x) => x.id === nodeId);
+    return { text: t?.note || "", pinned: !!t?.notePinned };
+  };
+
+  const setNoteTextForNode = (nodeId: string, text: string) => {
+    if (nodeId === CENTER_ID) {
+      setCenterNote(text);
+      return;
+    }
+    setTasks((prev) => prev.map((t) => (t.id === nodeId ? { ...t, note: text } : t)));
+  };
+
+  const setNotePinnedForNode = (nodeId: string, pinned: boolean) => {
+    if (nodeId === CENTER_ID) {
+      setCenterNotePinned(pinned);
+      return;
+    }
+    setTasks((prev) =>
+      prev.map((t) => (t.id === nodeId ? { ...t, notePinned: pinned } : t))
+    );
+  };
+
   /* ---------- Attachments Helper ---------- */
 
   const getAttachmentsForNode = (nodeId: string) => {
-  if (nodeId === CENTER_ID) return centerAttachments ?? [];
-  const t = tasks.find((x) => x.id === nodeId);
-  return t?.attachments ?? [];
-};
-
+    if (nodeId === CENTER_ID) return centerAttachments ?? [];
+    const t = tasks.find((x) => x.id === nodeId);
+    return t?.attachments ?? [];
+  };
 
   const setAttachmentsForNode = (
     nodeId: string,
@@ -428,7 +458,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   // schützt davor, dass ein Touch-LongPress (Menü) danach noch als Tap zählt
   const touchLongPressFiredRef = useRef(false);
-const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   useEffect(() => {
     if (!active) setPdfPreview(null);
@@ -445,10 +475,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     setPdfPreview({ nodeId, attachmentId: att.id });
   };
 
-  const onNodePointerUpMaybeOpenPdf = (
-    e: React.PointerEvent,
-    nodeId: string
-  ) => {
+  const onNodePointerUpMaybeOpenPdf = (e: React.PointerEvent, nodeId: string) => {
     const longPressOpened = touchLongPressFiredRef.current;
     const d = vDrag.current;
     const isTap = !!d && d.id === nodeId && !d.moved;
@@ -500,11 +527,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     touchLongPressTarget.current = null;
   };
 
-  const startTouchLongPressForNode = (
-    nodeId: string,
-    clientX: number,
-    clientY: number
-  ) => {
+  const startTouchLongPressForNode = (nodeId: string, clientX: number, clientY: number) => {
     touchLongPressFiredRef.current = false;
     clearTouchLongPress();
     touchLongPressTarget.current = {
@@ -613,9 +636,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
   /* ---------- Pan/Zoom ---------- */
   const panning = useRef(false);
   const last = useRef({ x: 0, y: 0 });
-  const activePointers = useRef<Map<number, { x: number; y: number }>>(
-    new Map()
-  );
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinching = useRef(false);
   const pinchStart = useRef<{
     dist: number;
@@ -696,11 +717,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     }
 
     const pt = activePointers.current.get(e.pointerId);
-    if (pt)
-      activePointers.current.set(e.pointerId, {
-        x: e.clientX,
-        y: e.clientY,
-      });
+    if (pt) activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (pinching.current && activePointers.current.size >= 2) {
       const [p1, p2] = Array.from(activePointers.current.values());
@@ -757,9 +774,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       const next = Math.min(MAX_Z, Math.max(MIN_Z, scale * factor));
       zoomAt(cx, cy, next);
     };
-    window.addEventListener("gesturechange", onGestureChange, {
-      passive: false,
-    });
+    window.addEventListener("gesturechange", onGestureChange, { passive: false });
     return () => window.removeEventListener("gesturechange", onGestureChange);
   }, [scale, active, pan.x, pan.y]);
 
@@ -777,10 +792,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     const onKeyDown = (ev: KeyboardEvent) => {
       if (
         (ev.ctrlKey || ev.metaKey) &&
-        (ev.key === "+" ||
-          ev.key === "-" ||
-          ev.key === "0" ||
-          ev.key === "=")
+        (ev.key === "+" || ev.key === "-" || ev.key === "0" || ev.key === "=")
       ) {
         ev.preventDefault();
       }
@@ -824,7 +836,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     nodeId: string | null;
     edgeParentId: string | null;
     edgeChildId: string | null;
-    tab: "color" | "files";
+    tab: "color" | "files" | "notes";
   }>({
     open: false,
     x: 0,
@@ -853,11 +865,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputTargetNodeId = useRef<string | null>(null);
 
-  const openColorMenuForNode = (
-    clientX: number,
-    clientY: number,
-    taskId: string
-  ) => {
+  const openColorMenuForNode = (clientX: number, clientY: number, taskId: string) => {
     if (removeMode) return;
     setFileMenu((m) => ({ ...m, open: false }));
     setCtxMenu({
@@ -905,6 +913,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
   useEffect(() => {
     if (!active) {
       closeColorMenu();
+      setHoverNoteId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
@@ -977,9 +986,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       if (t.parentId === null) {
         setBranchColorOverride((prev) => ({ ...prev, [t.id]: hex }));
       } else {
-        setTasks((prev) =>
-          prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x))
-        );
+        setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, color: hex } : x)));
       }
       closeColorMenu();
       return;
@@ -1028,9 +1035,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     else if (explicit === true) nextExplicit = false;
     else nextExplicit = true;
 
-    setTasks((prev) =>
-      prev.map((x) => (x.id === id ? { ...x, done: nextExplicit } : x))
-    );
+    setTasks((prev) => prev.map((x) => (x.id === id ? { ...x, done: nextExplicit } : x)));
   };
 
   const onNodeContextMenu = (e: React.MouseEvent, id: string) => {
@@ -1065,9 +1070,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     const nodeId = fileInputTargetNodeId.current;
     if (!file || !nodeId) return;
 
-    const isPdf =
-      file.type === "application/pdf" ||
-      file.name.toLowerCase().endsWith(".pdf");
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (!isPdf) {
       window.alert("Only PDF files are supported right now.");
       return;
@@ -1097,11 +1100,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     attachmentId: string
   ) => {
     setFileMenu((prev) => {
-      if (
-        prev.open &&
-        prev.nodeId === nodeId &&
-        prev.attachmentId === attachmentId
-      ) {
+      if (prev.open && prev.nodeId === nodeId && prev.attachmentId === attachmentId) {
         return { ...prev, open: false };
       }
       return {
@@ -1134,9 +1133,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     const { nodeId, attachmentId } = fileMenu;
     if (!nodeId || !attachmentId) return;
 
-    setAttachmentsForNode(nodeId, (prev) =>
-      prev.filter((a) => a.id !== attachmentId)
-    );
+    setAttachmentsForNode(nodeId, (prev) => prev.filter((a) => a.id !== attachmentId));
     setFileMenu((m) => ({ ...m, open: false }));
   };
 
@@ -1145,14 +1142,93 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
   function renderTitleAsSpans(title: string, maxLen: number): JSX.Element[] {
     const lines = splitTitleLines(title, maxLen, 3);
     return lines.map((ln, i) => (
-      <span
-        key={i}
-        style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}
-      >
+      <span key={i} style={{ display: "block", whiteSpace: "nowrap", lineHeight: 1.1 }}>
         {ln}
       </span>
     ));
   }
+
+  // ✅ Pergament-Notiz-Bubble (immer über Node, skaliert mit Map, pointerEvents none)
+  const renderNoteBubble = (nodeId: string) => {
+    if (!active) return null;
+    if (removeMode) return null;
+
+    const { text, pinned } = getNoteForNode(nodeId);
+    const hasText = (text || "").trim().length > 0;
+    if (!hasText) return null;
+
+    const menuPreview =
+      ctxMenu.open &&
+      ctxMenu.kind === "node" &&
+      ctxMenu.nodeId === nodeId &&
+      ctxMenu.tab === "notes";
+
+    const show = pinned || hoverNoteId === nodeId || menuPreview;
+    if (!show) return null;
+
+    const wrapStyle: React.CSSProperties = {
+      position: "absolute",
+      left: "50%",
+      bottom: "100%",
+      transform: "translate(-50%, -14px)",
+      pointerEvents: "none",
+      zIndex: 999999,
+      maxWidth: 260,
+      minWidth: 160,
+      filter: "drop-shadow(0 12px 26px rgba(0,0,0,0.16))",
+    };
+
+    const bubbleStyle: React.CSSProperties = {
+      position: "relative",
+      padding: "10px 12px",
+      borderRadius: 14,
+      background:
+        "linear-gradient(180deg, rgba(255,246,220,1) 0%, rgba(243,225,181,1) 100%)",
+      border: "1px solid rgba(214,182,122,0.95)",
+      boxShadow: "0 2px 0 rgba(255,255,255,0.55) inset",
+      color: "#2f2316",
+      fontWeight: 800,
+      fontSize: 12.5,
+      lineHeight: 1.25,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      letterSpacing: "0.2px",
+    };
+
+    const tailStyle: React.CSSProperties = {
+      position: "absolute",
+      left: "50%",
+      bottom: -8,
+      width: 18,
+      height: 18,
+      transform: "translateX(-50%) rotate(45deg)",
+      background:
+        "linear-gradient(180deg, rgba(255,246,220,1) 0%, rgba(243,225,181,1) 100%)",
+      borderRight: "1px solid rgba(214,182,122,0.95)",
+      borderBottom: "1px solid rgba(214,182,122,0.95)",
+      borderRadius: 3,
+    };
+
+    const subtleTop: React.CSSProperties = {
+      position: "absolute",
+      inset: 0,
+      borderRadius: 14,
+      background:
+        "radial-gradient(120px 60px at 30% 20%, rgba(255,255,255,0.55), rgba(255,255,255,0) 70%)",
+      pointerEvents: "none",
+      opacity: 0.7,
+    };
+
+    return (
+      <div className="map-note-bubble" style={wrapStyle} aria-hidden="true">
+        <div style={bubbleStyle}>
+          <div style={subtleTop} />
+          {text}
+          <div style={tailStyle} />
+        </div>
+      </div>
+    );
+  };
 
   // Eine Edge = sichtbare Linie + dicke unsichtbare Hit-Line
   function renderEdgeLine(
@@ -1185,12 +1261,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
               if (removeMode) return;
               e.stopPropagation();
               e.preventDefault();
-              startTouchLongPressForEdge(
-                parentId,
-                childId,
-                e.clientX,
-                e.clientY
-              );
+              startTouchLongPressForEdge(parentId, childId, e.clientX, e.clientY);
             }
           }}
           onPointerUp={() => clearTouchLongPress()}
@@ -1255,15 +1326,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       );
 
       lines.push(
-        ...renderChildLinesWithOffsets(
-          kid.id,
-          cx,
-          cy,
-          R_CHILD,
-          edgeBaseColor,
-          px,
-          py
-        )
+        ...renderChildLinesWithOffsets(kid.id, cx, cy, R_CHILD, edgeBaseColor, px, py)
       );
     });
 
@@ -1300,8 +1363,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       const cy = cyBase + ko.y;
 
       const task = getTask(kid.id);
-      const explicitDone =
-        typeof task?.done === "boolean" ? task.done : undefined;
+      const explicitDone = typeof task?.done === "boolean" ? task.done : undefined;
       const isDone = explicitDone !== undefined ? explicitDone : inheritedDone;
 
       const bubbleColor = (() => {
@@ -1326,6 +1388,14 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
           data-done={isDone ? "true" : "false"}
           data-remove-mode={removeMode ? "true" : "false"}
           data-remove-selected={isSelectedForRemove ? "true" : "false"}
+          onPointerEnter={() => {
+            if (!active || removeMode) return;
+            setHoverNoteId(kid.id);
+          }}
+          onPointerLeave={() => {
+            if (!active || removeMode) return;
+            setHoverNoteId((cur) => (cur === kid.id ? null : cur));
+          }}
           onPointerDown={(e) => {
             if (removeMode) {
               e.stopPropagation();
@@ -1351,11 +1421,11 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
           onContextMenu={(e) => onNodeContextMenu(e, kid.id)}
           lang={document.documentElement.lang || navigator.language || "en"}
         >
+          {renderNoteBubble(kid.id)}
+
           {removeMode && (
             <div className="remove-checkbox" aria-hidden="true">
-              {isSelectedForRemove && (
-                <div className="remove-checkbox-mark">✕</div>
-              )}
+              {isSelectedForRemove && <div className="remove-checkbox-mark">✕</div>}
             </div>
           )}
           {isDone && (
@@ -1368,15 +1438,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       );
 
       nodes.push(
-        ...renderChildNodesWithOffsets(
-          kid.id,
-          cx,
-          cy,
-          rootBubbleColor,
-          px,
-          py,
-          isDone
-        )
+        ...renderChildNodesWithOffsets(kid.id, cx, cy, rootBubbleColor, px, py, isDone)
       );
     });
 
@@ -1433,6 +1495,29 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       const base = Math.atan2(py - gpy, px - gpx);
       const SPREAD = Math.min(
         Math.PI,
+        Math.max(Math.PI * 0.6, (kids.lengthlength - 1) * (Math.PI / 6))
+      );
+    };
+
+    // FIX: keep original logic (the above accidental line is not allowed)
+    // Rebuild addChildRec correctly:
+    const addChildRecFixed = (
+      parentId: string,
+      px: number,
+      py: number,
+      pr: number,
+      gpx: number,
+      gpy: number,
+      rootBubbleColor: string,
+      edgeBaseColor: string,
+      inheritedDone: boolean
+    ) => {
+      const kids = childrenOf(parentId);
+      if (kids.length === 0) return;
+
+      const base = Math.atan2(py - gpy, px - gpx);
+      const SPREAD = Math.min(
+        Math.PI,
         Math.max(Math.PI * 0.6, (kids.length - 1) * (Math.PI / 6))
       );
       const step = kids.length === 1 ? 0 : SPREAD / (kids.length - 1);
@@ -1450,8 +1535,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
 
         const t = getTask(kid.id);
         const explicitDone = typeof t?.done === "boolean" ? t.done : undefined;
-        const isDone =
-          explicitDone !== undefined ? explicitDone : inheritedDone;
+        const isDone = explicitDone !== undefined ? explicitDone : inheritedDone;
 
         const bubbleColor = t?.color ?? rootBubbleColor;
         const isSelectedForRemove = removeMode && removeSelection.has(kid.id);
@@ -1482,7 +1566,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
           color: lineColor,
         });
 
-        addChildRec(
+        addChildRecFixed(
           kid.id,
           cx,
           cy,
@@ -1506,16 +1590,12 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       const ry = ryBase + ro.y;
 
       const baseBubbleColor =
-        branchColorOverride[root.id] ??
-        BRANCH_COLORS[i % BRANCH_COLORS.length];
-      const baseEdgeColor =
-        branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+        branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
+      const baseEdgeColor = branchEdgeColorOverride[root.id] ?? baseBubbleColor;
 
       const rootTask = getTask(root.id);
-      const explicitRootDone =
-        typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-      const rootDone =
-        explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
+      const explicitRootDone = typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
+      const rootDone = explicitRootDone !== undefined ? explicitRootDone : !!centerDone;
 
       const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
 
@@ -1544,17 +1624,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       });
 
       // Children edges + nodes
-      addChildRec(
-        root.id,
-        rx,
-        ry,
-        R_ROOT,
-        0,
-        0,
-        baseBubbleColor,
-        baseEdgeColor,
-        rootDone
-      );
+      addChildRecFixed(root.id, rx, ry, R_ROOT, 0, 0, baseBubbleColor, baseEdgeColor, rootDone);
     });
 
     // Bounds (nur Nodes reichen – Edges liegen innerhalb)
@@ -1589,8 +1659,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     const dpr = window.devicePixelRatio || 1;
     const base = clamp(dpr * 2, 2, 4);
     const longSide = Math.max(w, h);
-    const maxRatioBySize =
-      EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
+    const maxRatioBySize = EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
     return clamp(Math.min(base, maxRatioBySize), 1, 4);
   };
 
@@ -1695,9 +1764,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       first.match(/rgba?\([^)]+\)/i) || first.match(/#[0-9a-f]{3,8}/i);
     const color = colorMatch ? colorMatch[0] : fallback.color;
 
-    const nums = [...first.matchAll(/(-?\d+(?:\.\d+)?)px/g)].map((m) =>
-      parseFloat(m[1])
-    );
+    const nums = [...first.matchAll(/(-?\d+(?:\.\d+)?)px/g)].map((m) => parseFloat(m[1]));
     const offsetX = nums[0] ?? fallback.offsetX;
     const offsetY = nums[1] ?? fallback.offsetY;
     const blur = nums[2] ?? fallback.blur;
@@ -1874,19 +1941,11 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
 
       // sample styles from live DOM (so text sizing matches your CSS)
       const centerStyle = readTextStyleFromNode(".skill-node.center-node");
-      const rootStyle = readTextStyleFromNode(
-        ".skill-node.root-node",
-        centerStyle
-      );
-      const childStyle = readTextStyleFromNode(
-        ".skill-node.child-node",
-        rootStyle
-      );
+      const rootStyle = readTextStyleFromNode(".skill-node.root-node", centerStyle);
+      const childStyle = readTextStyleFromNode(".skill-node.child-node", rootStyle);
 
       const shadowSampleEl =
-        (wrapperRef.current?.querySelector(
-          ".skill-node.center-node"
-        ) as HTMLElement | null) || null;
+        (wrapperRef.current?.querySelector(".skill-node.center-node") as HTMLElement | null) || null;
       const shadow = readBoxShadow(shadowSampleEl);
 
       // edges first
@@ -1908,11 +1967,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
         const cy = layout.originY + n.y;
 
         const styleForNode =
-          n.kind === "center"
-            ? centerStyle
-            : n.kind === "root"
-            ? rootStyle
-            : childStyle;
+          n.kind === "center" ? centerStyle : n.kind === "root" ? rootStyle : childStyle;
 
         // shadow + circle
         ctx.save();
@@ -1936,7 +1991,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
         ctx.arc(cx, cy, n.r, 0, Math.PI * 2);
         ctx.fill();
 
-        // done look: leichte Entsättigung/Overlay (CSS ist datenbasiert; wir approximieren stabil)
+        // done look
         if (n.done) {
           ctx.globalAlpha = 0.28;
           ctx.fillStyle = "#ffffff";
@@ -1948,14 +2003,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
 
         // badges
         if (removeMode) {
-          drawRemoveBadge(
-            ctx,
-            cx,
-            cy,
-            n.r,
-            !!n.removeSelected,
-            styleForNode.fontFamily
-          );
+          drawRemoveBadge(ctx, cx, cy, n.r, !!n.removeSelected, styleForNode.fontFamily);
         }
         if (n.done) {
           drawDoneBadge(ctx, cx, cy, n.r, styleForNode.fontFamily);
@@ -1967,8 +2015,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
         ctx.textBaseline = "middle";
         ctx.font = `${styleForNode.fontStyle} ${styleForNode.fontWeight} ${styleForNode.fontSizePx}px ${styleForNode.fontFamily}`;
 
-        const maxLen =
-          n.kind === "center" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
+        const maxLen = n.kind === "center" ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD;
         const lines = splitTitleLines(n.title, maxLen, 3);
 
         const lh = styleForNode.lineHeightPx || styleForNode.fontSizePx * 1.1;
@@ -2018,9 +2065,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
       a.click();
       a.remove();
     } catch {
-      window.alert(
-        "Export as PNG failed. Please try again and check the console for details."
-      );
+      window.alert("Export as PNG failed. Please try again and check the console for details.");
     }
   };
 
@@ -2050,9 +2095,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
 
       pdf.save(buildImageFileName(projectTitle, "pdf"));
     } catch {
-      window.alert(
-        "Export as PDF failed. Please try again and check the console for details."
-      );
+      window.alert("Export as PDF failed. Please try again and check the console for details.");
     }
   };
 
@@ -2094,12 +2137,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
   };
 
   // 0° = 12 Uhr, clockwise (90° rechts, 180° unten, 270° links)
-  const angleHudComputeDeg = (
-    px: number,
-    py: number,
-    nx: number,
-    ny: number
-  ) => {
+  const angleHudComputeDeg = (px: number, py: number, nx: number, ny: number) => {
     const dx = nx - px;
     const dy = ny - py;
     const rad = Math.atan2(dx, -dy);
@@ -2151,13 +2189,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
 
     const totalRoots = Math.max(roots.length, 1);
 
-    const rec = (
-      parentId: string,
-      px: number,
-      py: number,
-      gpx: number,
-      gpy: number
-    ) => {
+    const rec = (parentId: string, px: number, py: number, gpx: number, gpy: number) => {
       const kids = byParent.get(parentId) || [];
       if (kids.length === 0) return;
 
@@ -2232,9 +2264,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     if (!active || removeMode) return;
     if (nodeId === CENTER_ID) return;
     angleHudNodeElRef.current =
-      ((targetEl as any)?.closest?.(".skill-node") as HTMLElement) ||
-      targetEl ||
-      null;
+      ((targetEl as any)?.closest?.(".skill-node") as HTMLElement) || targetEl || null;
 
     const t = getTask(nodeId);
     if (!t) return;
@@ -2287,8 +2317,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
     st.offY = nextOffY;
 
     const posMap = angleHudGetPosMapNow();
-    const parentPos =
-      posMap[st.parentId] ?? posMap[CENTER_ID] ?? { x: 0, y: 0 };
+    const parentPos = posMap[st.parentId] ?? posMap[CENTER_ID] ?? { x: 0, y: 0 };
 
     const nodeX = st.baseX + nextOffX;
     const nodeY = st.baseY + nextOffY;
@@ -2304,13 +2333,11 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
 
     const screenX = rect
       ? rect.left + rect.width / 2
-      : wrapperRef.current.getBoundingClientRect().left +
-        (pan.x + nodeX * scale);
+      : wrapperRef.current.getBoundingClientRect().left + (pan.x + nodeX * scale);
 
     const screenY = rect
       ? rect.top + rect.height / 2
-      : wrapperRef.current.getBoundingClientRect().top +
-        (pan.y + nodeY * scale);
+      : wrapperRef.current.getBoundingClientRect().top + (pan.y + nodeY * scale);
 
     // super nah über dem Kreis:
     const yAnchor = rect ? rect.top - 6 : screenY - st.worldRadius * scale + 2;
@@ -2341,9 +2368,7 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
   return (
     <>
       <div
-        className={
-          "skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")
-        }
+        className={"skillmap-wrapper" + (removeMode ? " skillmap-remove-mode" : "")}
         ref={wrapperRef}
         style={{
           touchAction: "none",
@@ -2377,10 +2402,8 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
                 const seg = segmentBetweenCircles(0, 0, R_CENTER, rx, ry, R_ROOT);
 
                 const baseBubbleColor =
-                  branchColorOverride[root.id] ??
-                  BRANCH_COLORS[i % BRANCH_COLORS.length];
-                const baseEdgeColor =
-                  branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+                  branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
+                const baseEdgeColor = branchEdgeColorOverride[root.id] ?? baseBubbleColor;
 
                 return renderEdgeLine(
                   `root-line-${root.id}`,
@@ -2405,20 +2428,10 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
                 const ry = ryBase + ro.y;
 
                 const baseBubbleColor =
-                  branchColorOverride[root.id] ??
-                  BRANCH_COLORS[i % BRANCH_COLORS.length];
-                const baseEdgeColor =
-                  branchEdgeColorOverride[root.id] ?? baseBubbleColor;
+                  branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
+                const baseEdgeColor = branchEdgeColorOverride[root.id] ?? baseBubbleColor;
 
-                return renderChildLinesWithOffsets(
-                  root.id,
-                  rx,
-                  ry,
-                  R_ROOT,
-                  baseEdgeColor,
-                  0,
-                  0
-                );
+                return renderChildLinesWithOffsets(root.id, rx, ry, R_ROOT, baseEdgeColor, 0, 0);
               })}
             </svg>
 
@@ -2427,6 +2440,14 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
               className="skill-node center-node"
               style={{ background: centerColor }}
               data-done={centerDone ? "true" : "false"}
+              onPointerEnter={() => {
+                if (!active || removeMode) return;
+                setHoverNoteId(CENTER_ID);
+              }}
+              onPointerLeave={() => {
+                if (!active || removeMode) return;
+                setHoverNoteId((cur) => (cur === CENTER_ID ? null : cur));
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -2434,53 +2455,52 @@ const centerTapRef = useRef<{ x: number; y: number; moved: boolean } | null>(nul
                 openColorMenuForNode(e.clientX, e.clientY, CENTER_ID);
               }}
               onPointerDown={(e) => {
-  if (removeMode) return;
+                if (removeMode) return;
 
-  // Track: Tap vs Drag
-  centerTapRef.current = { x: e.clientX, y: e.clientY, moved: false };
+                // Track: Tap vs Drag
+                centerTapRef.current = { x: e.clientX, y: e.clientY, moved: false };
 
-  if (e.pointerType === "touch") {
-    e.preventDefault();
-    skipClearLongPressOnNextPointerDown.current = true;
-    startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
-  }
-}}
-onPointerMove={(e) => {
-  const d = centerTapRef.current;
-  if (!d || d.moved) return;
-  const dx = e.clientX - d.x;
-  const dy = e.clientY - d.y;
-  if (Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) d.moved = true;
-}}
+                if (e.pointerType === "touch") {
+                  e.preventDefault();
+                  skipClearLongPressOnNextPointerDown.current = true;
+                  startTouchLongPressForNode(CENTER_ID, e.clientX, e.clientY);
+                }
+              }}
+              onPointerMove={(e) => {
+                const d = centerTapRef.current;
+                if (!d || d.moved) return;
+                const dx = e.clientX - d.x;
+                const dy = e.clientY - d.y;
+                if (Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) d.moved = true;
+              }}
+              onPointerUp={(e) => {
+                const longPressOpened = touchLongPressFiredRef.current;
+                const d = centerTapRef.current;
+                centerTapRef.current = null;
 
-   onPointerUp={(e) => {
-  const longPressOpened = touchLongPressFiredRef.current;
-  const d = centerTapRef.current;
-  centerTapRef.current = null;
+                clearTouchLongPress();
+                touchLongPressFiredRef.current = false;
 
-  clearTouchLongPress();
-  touchLongPressFiredRef.current = false;
+                if (!active) return;
+                if (removeMode) return;
 
-  if (!active) return;
-  if (removeMode) return;
+                // Nur Linksklick oder Touch
+                const isPrimary = e.pointerType === "touch" || e.button === 0;
+                if (!isPrimary) return;
 
-  // Nur Linksklick oder Touch
-  const isPrimary = e.pointerType === "touch" || e.button === 0;
-  if (!isPrimary) return;
+                // Wenn Long-Press-Menü aufging: nicht öffnen
+                if (longPressOpened) return;
 
-  // Wenn Long-Press-Menü aufging: nicht öffnen
-  if (longPressOpened) return;
+                // Wenn du gepannt/gezogen hast: nicht öffnen
+                if (d?.moved) return;
 
-  // Wenn du gepannt/gezogen hast: nicht öffnen
-  if (d?.moved) return;
-
-  openPdfPreviewForNode(CENTER_ID);
-}}
-
-
+                openPdfPreviewForNode(CENTER_ID);
+              }}
               onPointerCancel={onNodePointerCancelCommon}
               lang={document.documentElement.lang || navigator.language || "en"}
             >
+              {renderNoteBubble(CENTER_ID)}
+
               {centerDone && (
                 <div className="done-badge" aria-hidden="true">
                   <span className="done-badge-check">✓</span>
@@ -2500,17 +2520,14 @@ onPointerMove={(e) => {
               const ry = ryBase + ro.y;
 
               const rootBubbleColor =
-                branchColorOverride[root.id] ??
-                BRANCH_COLORS[i % BRANCH_COLORS.length];
+                branchColorOverride[root.id] ?? BRANCH_COLORS[i % BRANCH_COLORS.length];
 
               const rootTask = getTask(root.id);
               const explicitRootDone =
                 typeof rootTask?.done === "boolean" ? rootTask.done : undefined;
-              const rootDone =
-                explicitRootDone !== undefined ? explicitRootDone : centerDone;
+              const rootDone = explicitRootDone !== undefined ? explicitRootDone : centerDone;
 
-              const isRootSelectedForRemove =
-                removeMode && removeSelection.has(root.id);
+              const isRootSelectedForRemove = removeMode && removeSelection.has(root.id);
 
               return (
                 <React.Fragment key={`root-node-${root.id}`}>
@@ -2526,9 +2543,15 @@ onPointerMove={(e) => {
                     }}
                     data-done={rootDone ? "true" : "false"}
                     data-remove-mode={removeMode ? "true" : "false"}
-                    data-remove-selected={
-                      isRootSelectedForRemove ? "true" : "false"
-                    }
+                    data-remove-selected={isRootSelectedForRemove ? "true" : "false"}
+                    onPointerEnter={() => {
+                      if (!active || removeMode) return;
+                      setHoverNoteId(root.id);
+                    }}
+                    onPointerLeave={() => {
+                      if (!active || removeMode) return;
+                      setHoverNoteId((cur) => (cur === root.id ? null : cur));
+                    }}
                     onPointerDown={(e) => {
                       if (removeMode) {
                         e.stopPropagation();
@@ -2553,11 +2576,11 @@ onPointerMove={(e) => {
                     onContextMenu={(e) => onNodeContextMenu(e, root.id)}
                     lang={document.documentElement.lang || navigator.language || "en"}
                   >
+                    {renderNoteBubble(root.id)}
+
                     {removeMode && (
                       <div className="remove-checkbox" aria-hidden="true">
-                        {isRootSelectedForRemove && (
-                          <div className="remove-checkbox-mark">✕</div>
-                        )}
+                        {isRootSelectedForRemove && <div className="remove-checkbox-mark">✕</div>}
                       </div>
                     )}
                     {rootDone && (
@@ -2568,15 +2591,7 @@ onPointerMove={(e) => {
                     {renderTitleAsSpans(root.title, MAXLEN_ROOT_AND_CHILD)}
                   </div>
 
-                  {renderChildNodesWithOffsets(
-                    root.id,
-                    rx,
-                    ry,
-                    rootBubbleColor,
-                    0,
-                    0,
-                    rootDone
-                  )}
+                  {renderChildNodesWithOffsets(root.id, rx, ry, rootBubbleColor, 0, 0, rootDone)}
                 </React.Fragment>
               );
             })}
@@ -2589,17 +2604,14 @@ onPointerMove={(e) => {
             <div className="map-progress-label">Progress</div>
             <div className="map-progress-row">
               <div className="map-progress-bar" aria-hidden="true">
-                <div
-                  className="map-progress-bar-fill"
-                  style={{ width: `${progressPercent}%` }}
-                />
+                <div className="map-progress-bar-fill" style={{ width: `${progressPercent}%` }} />
               </div>
               <div className="map-progress-value">{progressPercent}%</div>
             </div>
           </div>
         )}
 
-        {/* Kontextmenü (Color / Files) */}
+        {/* Kontextmenü (Color / Files / Notes) */}
         {active && ctxMenu.open && !removeMode && (
           <div
             className="ctxmenu"
@@ -2614,31 +2626,36 @@ onPointerMove={(e) => {
           >
             <div className="ctxmenu-header">
               {ctxMenu.kind === "node" ? (
-                <div
-                  className="ctxmenu-tabRow"
-                  style={{ display: "flex", gap: 10 }}
-                >
+                <div className="ctxmenu-tabRow" style={{ display: "flex", gap: 10 }}>
                   <button
                     className={
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
                       (ctxMenu.tab === "color" ? " ctxmenu-tabBtn-active" : "")
                     }
-                    onClick={() =>
-                      setCtxMenu((prev) => ({ ...prev, tab: "color" }))
-                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "color" }))}
                   >
                     Color
                   </button>
+
                   <button
                     className={
                       "ctxmenu-doneBtn ctxmenu-tabBtn" +
                       (ctxMenu.tab === "files" ? " ctxmenu-tabBtn-active" : "")
                     }
-                    onClick={() =>
-                      setCtxMenu((prev) => ({ ...prev, tab: "files" }))
-                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "files" }))}
                   >
                     Files
+                  </button>
+
+                  {/* ✅ NEW: Notes zwischen Files und Done */}
+                  <button
+                    className={
+                      "ctxmenu-doneBtn ctxmenu-tabBtn" +
+                      (ctxMenu.tab === "notes" ? " ctxmenu-tabBtn-active" : "")
+                    }
+                    onClick={() => setCtxMenu((prev) => ({ ...prev, tab: "notes" }))}
+                  >
+                    Notes
                   </button>
                 </div>
               ) : (
@@ -2663,9 +2680,95 @@ onPointerMove={(e) => {
             </div>
 
             <div className="ctxmenu-body">
-              {ctxMenu.kind === "node" &&
-              ctxMenu.tab === "files" &&
-              ctxMenu.nodeId ? (
+              {/* NOTES TAB */}
+              {ctxMenu.kind === "node" && ctxMenu.tab === "notes" && ctxMenu.nodeId ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div
+                    style={{
+                      color: "#cbd5e1",
+                      fontStyle: "italic",
+                      fontSize: 12,
+                      letterSpacing: "0.1px",
+                    }}
+                  >
+                    Write a Note.
+                  </div>
+
+                  <textarea
+                    value={getNoteForNode(ctxMenu.nodeId).text}
+                    onChange={(e) => setNoteTextForNode(ctxMenu.nodeId!, e.target.value)}
+                    placeholder=""
+                    rows={4}
+                    style={{
+                      width: "100%",
+                      resize: "none",
+                      borderRadius: 10,
+                      border: "1px solid rgba(148,163,184,0.22)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#e5e7eb",
+                      padding: "10px 10px",
+                      outline: "none",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      lineHeight: 1.25,
+                    }}
+                  />
+
+                  {/* Toggle: Hover / Always */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ color: "#e2e8f0", fontSize: 12.5, fontWeight: 800 }}>
+                      Display
+                    </div>
+
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        borderRadius: 999,
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1px solid rgba(148,163,184,0.22)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <button
+                        onClick={() => setNotePinnedForNode(ctxMenu.nodeId!, false)}
+                        style={{
+                          padding: "6px 10px",
+                          fontSize: 12,
+                          fontWeight: 900,
+                          color: !getNoteForNode(ctxMenu.nodeId).pinned ? "#0f172a" : "#e5e7eb",
+                          background: !getNoteForNode(ctxMenu.nodeId).pinned
+                            ? "linear-gradient(180deg, rgba(255,246,220,1), rgba(243,225,181,1))"
+                            : "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Hover
+                      </button>
+                      <button
+                        onClick={() => setNotePinnedForNode(ctxMenu.nodeId!, true)}
+                        style={{
+                          padding: "6px 10px",
+                          fontSize: 12,
+                          fontWeight: 900,
+                          color: getNoteForNode(ctxMenu.nodeId).pinned ? "#0f172a" : "#e5e7eb",
+                          background: getNoteForNode(ctxMenu.nodeId).pinned
+                            ? "linear-gradient(180deg, rgba(255,246,220,1), rgba(243,225,181,1))"
+                            : "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Always
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ color: "rgba(226,232,240,0.65)", fontSize: 11.5, fontWeight: 700 }}>
+                    Tip: In “Hover” mode the note shows when you hover the node. In “Always”, it stays visible.
+                  </div>
+                </div>
+              ) : ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
                 <div className="ctxmenu-filesView">
                   <button
                     className="ctxmenu-doneBtn ctxmenu-addPdfBtn"
@@ -2674,17 +2777,11 @@ onPointerMove={(e) => {
                     + Add PDF
                   </button>
                   {getAttachmentsForNode(ctxMenu.nodeId).length === 0 ? (
-                    <div className="ctxmenu-filesEmpty">
-                      No PDFs attached yet.
-                    </div>
+                    <div className="ctxmenu-filesEmpty">No PDFs attached yet.</div>
                   ) : (
                     <ul
                       className="ctxmenu-fileList"
-                      style={{
-                        listStyle: "none",
-                        padding: 0,
-                        margin: "10px 0 0 0",
-                      }}
+                      style={{ listStyle: "none", padding: 0, margin: "10px 0 0 0" }}
                     >
                       {getAttachmentsForNode(ctxMenu.nodeId).map((att) => (
                         <li key={att.id} className="ctxmenu-fileItem">
@@ -2694,32 +2791,19 @@ onPointerMove={(e) => {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(
-                                e.clientX,
-                                e.clientY,
-                                ctxMenu.nodeId!,
-                                att.id
-                              );
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openFileContextMenu(
-                                e.clientX,
-                                e.clientY,
-                                ctxMenu.nodeId!,
-                                att.id
-                              );
+                              openFileContextMenu(e.clientX, e.clientY, ctxMenu.nodeId!, att.id);
                             }}
                           >
                             <span className="ctxmenu-fileBullet">•</span>
                             <span className="ctxmenu-fileIcon" aria-hidden="true">
                               📄
                             </span>
-                            <span
-                              className="ctxmenu-fileName"
-                              style={{ color: "#e5e7eb" }}
-                            >
+                            <span className="ctxmenu-fileName" style={{ color: "#e5e7eb" }}>
                               {att.name}
                             </span>
                           </button>
@@ -2812,16 +2896,10 @@ onPointerMove={(e) => {
       {/* PDF Overlay (Tap on Node opens, only if PDFs exist) */}
       <PdfPreviewOverlay
         open={!!pdfPreview}
-        title={
-          pdfPreview ? getTask(pdfPreview.nodeId)?.title || "Task" : ""
-        }
-        attachments={
-          pdfPreview ? getAttachmentsForNode(pdfPreview.nodeId) : []
-        }
+        title={pdfPreview ? getTask(pdfPreview.nodeId)?.title || "Task" : ""}
+        attachments={pdfPreview ? getAttachmentsForNode(pdfPreview.nodeId) : []}
         selectedAttachmentId={pdfPreview?.attachmentId ?? null}
-        onSelectAttachment={(id) =>
-          setPdfPreview((p) => (p ? { ...p, attachmentId: id } : p))
-        }
+        onSelectAttachment={(id) => setPdfPreview((p) => (p ? { ...p, attachmentId: id } : p))}
         onClose={() => setPdfPreview(null)}
       />
 
@@ -2873,11 +2951,7 @@ onPointerMove={(e) => {
 
               const cls =
                 "skill-node " +
-                (isCenter
-                  ? "center-node"
-                  : isChild
-                  ? "child-node"
-                  : "root-node") +
+                (isCenter ? "center-node" : isChild ? "child-node" : "root-node") +
                 (removeMode ? " node-remove-mode" : "") +
                 (n.removeSelected ? " node-remove-selected" : "");
 
@@ -2898,9 +2972,7 @@ onPointerMove={(e) => {
                 >
                   {removeMode && (
                     <div className="remove-checkbox" aria-hidden="true">
-                      {n.removeSelected && (
-                        <div className="remove-checkbox-mark">✕</div>
-                      )}
+                      {n.removeSelected && <div className="remove-checkbox-mark">✕</div>}
                     </div>
                   )}
                   {n.done && (
@@ -2908,10 +2980,7 @@ onPointerMove={(e) => {
                       <span className="done-badge-check">✓</span>
                     </div>
                   )}
-                  {renderTitleAsSpans(
-                    n.title,
-                    isCenter ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD
-                  )}
+                  {renderTitleAsSpans(n.title, isCenter ? MAXLEN_CENTER : MAXLEN_ROOT_AND_CHILD)}
                 </div>
               );
             })}
