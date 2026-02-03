@@ -34,7 +34,7 @@ type SavedState = {
   // ✅ NEU: Center-Node Attachments persistieren
   centerAttachments?: TaskAttachment[];
 
-  // ✅ NEU: Center-Notes persistieren
+  // ✅ NEU: Center-Node Notes persistieren
   centerNote?: string;
   centerNotePinned?: boolean;
 
@@ -545,7 +545,9 @@ export default function App() {
 
     // ✅ NEU (backwards compatible): Center notes
     setCenterNote(typeof obj.centerNote === "string" ? obj.centerNote : "");
-    setCenterNotePinned(typeof obj.centerNotePinned === "boolean" ? obj.centerNotePinned : false);
+    setCenterNotePinned(
+      typeof obj.centerNotePinned === "boolean" ? obj.centerNotePinned : false
+    );
 
     clearRemoveMode();
     setView("map");
@@ -771,6 +773,11 @@ export default function App() {
             // ✅ Center Attachments
             centerAttachments={centerAttachments}
             setCenterAttachments={setCenterAttachments}
+            // ✅ NEU: Center Notes
+            centerNote={centerNote}
+            setCenterNote={setCenterNote}
+            centerNotePinned={centerNotePinned}
+            setCenterNotePinned={setCenterNotePinned}
             // ✅ NEU: Edge overrides (Linienfarben)
             branchEdgeColorOverride={branchEdgeColorOverride}
             setBranchEdgeColorOverride={setBranchEdgeColorOverride}
@@ -779,13 +786,6 @@ export default function App() {
             removeMode={removeMode}
             removeSelection={removeTargets}
             onToggleRemoveTarget={toggleRemoveTarget}
-            // ✅ NEU: Center notes (kompiliert auch ohne MapViewProps-Update)
-            {...({
-              centerNote,
-              setCenterNote,
-              centerNotePinned,
-              setCenterNotePinned,
-            } as any)}
           />
         </div>
 
@@ -977,4 +977,3 @@ function Row({
     </>
   );
 }
-
