@@ -71,6 +71,12 @@ type MapViewProps = {
   centerAttachments: TaskAttachment[];
   setCenterAttachments: React.Dispatch<React.SetStateAction<TaskAttachment[]>>;
 
+  // ✅ NEU: Center Notes – kommt aus App.tsx (Save/Open)
+  centerNote: string;
+  setCenterNote: React.Dispatch<React.SetStateAction<string>>;
+  centerNotePinned: boolean;
+  setCenterNotePinned: React.Dispatch<React.SetStateAction<boolean>>;
+
   // für Child-Einzelfarben + Done + Attachments:
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
 
@@ -345,6 +351,12 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     centerAttachments,
     setCenterAttachments,
 
+    // ✅ Center Notes (controlled via App.tsx)
+    centerNote,
+    setCenterNote,
+    centerNotePinned,
+    setCenterNotePinned,
+
     // ✅ Edge colors kommen jetzt aus App (falls App noch nicht updated ist: sichere Defaults)
     branchEdgeColorOverride = {},
     setBranchEdgeColorOverride = (() => {}) as any,
@@ -356,10 +368,6 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
   // Done-Status für das Projekt
   const [centerDone, setCenterDone] = useState<boolean>(false);
-
-  // ✅ Notes (Center)
-  const [centerNote, setCenterNote] = useState<string>("");
-  const [centerNotePinned, setCenterNotePinned] = useState<boolean>(false);
 
   // ✅ Notes Hover Tracking (für "Hover"-Mode)
   const [hoverNoteId, setHoverNoteId] = useState<string | null>(null);
