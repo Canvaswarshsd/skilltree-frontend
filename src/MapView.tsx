@@ -2692,7 +2692,15 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
             <div className="ctxmenu-body">
               {/* NOTES TAB */}
               {ctxMenu.kind === "node" && ctxMenu.tab === "notes" && ctxMenu.nodeId ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    whiteSpace: "normal",
+                    overflowWrap: "anywhere",
+                  }}
+                >
                   <div
                     style={{
                       color: "#cbd5e1",
@@ -2701,7 +2709,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                       letterSpacing: "0.1px",
                     }}
                   >
-                    Write a Note.
+                    Write a note.
                   </div>
 
                   <textarea
@@ -2711,6 +2719,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     rows={4}
                     style={{
                       width: "100%",
+                      boxSizing: "border-box",
                       resize: "none",
                       borderRadius: 10,
                       border: "1px solid rgba(148,163,184,0.22)",
@@ -2724,58 +2733,63 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                     }}
                   />
 
-                  {/* Toggle: Hover / Always */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}
+                  >
                     <div style={{ color: "#e2e8f0", fontSize: 12.5, fontWeight: 800 }}>
-                      Display
+                      Always show note
                     </div>
 
-                    <div
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNotePinnedForNode(
+                          ctxMenu.nodeId!,
+                          !getNoteForNode(ctxMenu.nodeId).pinned
+                        )
+                      }
+                      aria-pressed={getNoteForNode(ctxMenu.nodeId).pinned}
+                      aria-label="Always show note"
                       style={{
-                        display: "inline-flex",
+                        position: "relative",
+                        width: 46,
+                        height: 26,
                         borderRadius: 999,
-                        background: "rgba(255,255,255,0.06)",
                         border: "1px solid rgba(148,163,184,0.22)",
-                        overflow: "hidden",
+                        background: getNoteForNode(ctxMenu.nodeId).pinned
+                          ? "linear-gradient(180deg, rgba(255,246,220,1), rgba(243,225,181,1))"
+                          : "rgba(255,255,255,0.06)",
+                        cursor: "pointer",
+                        padding: 0,
+                        outline: "none",
+                        boxShadow: getNoteForNode(ctxMenu.nodeId).pinned
+                          ? "0 2px 0 rgba(255,255,255,0.55) inset"
+                          : "none",
                       }}
                     >
-                      <button
-                        onClick={() => setNotePinnedForNode(ctxMenu.nodeId!, false)}
+                      <span
+                        aria-hidden="true"
                         style={{
-                          padding: "6px 10px",
-                          fontSize: 12,
-                          fontWeight: 900,
-                          color: !getNoteForNode(ctxMenu.nodeId).pinned ? "#0f172a" : "#e5e7eb",
-                          background: !getNoteForNode(ctxMenu.nodeId).pinned
-                            ? "linear-gradient(180deg, rgba(255,246,220,1), rgba(243,225,181,1))"
-                            : "transparent",
-                          border: "none",
-                          cursor: "pointer",
+                          position: "absolute",
+                          top: 3,
+                          left: 3,
+                          width: 20,
+                          height: 20,
+                          borderRadius: 999,
+                          background: "rgba(226,232,240,0.95)",
+                          transform: getNoteForNode(ctxMenu.nodeId).pinned
+                            ? "translateX(20px)"
+                            : "translateX(0px)",
+                          transition: "transform 160ms ease",
+                          boxShadow: "0 6px 14px rgba(0,0,0,0.25)",
                         }}
-                      >
-                        Hover
-                      </button>
-                      <button
-                        onClick={() => setNotePinnedForNode(ctxMenu.nodeId!, true)}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 12,
-                          fontWeight: 900,
-                          color: getNoteForNode(ctxMenu.nodeId).pinned ? "#0f172a" : "#e5e7eb",
-                          background: getNoteForNode(ctxMenu.nodeId).pinned
-                            ? "linear-gradient(180deg, rgba(255,246,220,1), rgba(243,225,181,1))"
-                            : "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Always
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ color: "rgba(226,232,240,0.65)", fontSize: 11.5, fontWeight: 700 }}>
-                    Tip: In “Hover” mode the note shows when you hover the node. In “Always”, it stays visible.
+                      />
+                    </button>
                   </div>
                 </div>
               ) : ctxMenu.kind === "node" && ctxMenu.tab === "files" && ctxMenu.nodeId ? (
