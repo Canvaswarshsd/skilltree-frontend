@@ -1,4 +1,4 @@
-// frontend/src/App.tsx
+/ frontend/src/App.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
@@ -33,6 +33,10 @@ type SavedState = {
 
   // ✅ NEU: Center-Node Attachments persistieren
   centerAttachments?: TaskAttachment[];
+
+  // ✅ NEU: Center-Node Notes persistieren
+  centerNote?: string;
+  centerNotePinned?: boolean;
 
   // ✅ NEU: damit der “unschuldige” Start-Look nur gilt,
   // solange der User den Center nicht bewusst eingefärbt hat
@@ -81,6 +85,9 @@ const serializeState = (
   branchEdgeColorOverride: Record<string, string>,
   edgeColorOverride: Record<string, string>,
   centerAttachments: TaskAttachment[],
+  // ✅ NEU: Center notes
+  centerNote: string,
+  centerNotePinned: boolean,
   centerColorCustomized: boolean
 ): SavedState => ({
   v: 1,
@@ -98,6 +105,11 @@ const serializeState = (
   edgeColorOverride,
 
   centerAttachments,
+
+  // ✅ NEU: Center notes
+  centerNote,
+  centerNotePinned,
+
   centerColorCustomized,
 });
 
@@ -170,6 +182,10 @@ export default function App() {
   const [centerAttachments, setCenterAttachments] = useState<TaskAttachment[]>(
     []
   );
+
+  // ✅ NEU: Center-Node Notes (controlled + gespeichert)
+  const [centerNote, setCenterNote] = useState<string>("");
+  const [centerNotePinned, setCenterNotePinned] = useState<boolean>(false);
 
   // Remove-Modus (gemeinsam für Edit + Visualize)
   const [removeMode, setRemoveMode] = useState(false);
@@ -414,6 +430,9 @@ export default function App() {
       branchEdgeColorOverride,
       edgeColorOverride,
       centerAttachments,
+      // ✅ NEU: Center notes
+      centerNote,
+      centerNotePinned,
       centerColorCustomized
     );
     try {
@@ -445,6 +464,9 @@ export default function App() {
       branchEdgeColorOverride,
       edgeColorOverride,
       centerAttachments,
+      // ✅ NEU: Center notes
+      centerNote,
+      centerNotePinned,
       centerColorCustomized
     );
     try {
@@ -519,6 +541,12 @@ export default function App() {
     // ✅ NEU (backwards compatible): alte Files haben das Feld nicht
     setCenterAttachments(
       Array.isArray(obj.centerAttachments) ? (obj.centerAttachments as any) : []
+    );
+
+    // ✅ NEU (backwards compatible): Center notes
+    setCenterNote(typeof obj.centerNote === "string" ? obj.centerNote : "");
+    setCenterNotePinned(
+      typeof obj.centerNotePinned === "boolean" ? obj.centerNotePinned : false
     );
 
     clearRemoveMode();
@@ -745,6 +773,11 @@ export default function App() {
             // ✅ Center Attachments
             centerAttachments={centerAttachments}
             setCenterAttachments={setCenterAttachments}
+            // ✅ NEU: Center Notes
+            centerNote={centerNote}
+            setCenterNote={setCenterNote}
+            centerNotePinned={centerNotePinned}
+            setCenterNotePinned={setCenterNotePinned}
             // ✅ NEU: Edge overrides (Linienfarben)
             branchEdgeColorOverride={branchEdgeColorOverride}
             setBranchEdgeColorOverride={setBranchEdgeColorOverride}
