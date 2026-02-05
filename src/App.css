@@ -214,6 +214,8 @@ html, body { overflow: hidden; }
   background: rgba(255,255,255,.92);
   border: 1px solid rgba(255,255,255,.24);
   box-shadow: 0 4px 12px rgba(0,0,0,.35);
+  /* Center the 14px thumb on the 6px track (WebKit) */
+  margin-top: -4px;
 }
 
 .download-slider::-moz-range-thumb {
