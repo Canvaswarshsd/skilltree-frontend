@@ -704,7 +704,7 @@ export default function App() {
           className="save-item"
           onClick={() => {
             setDownloadOpen(false);
-            mapRef.current?.exportPDF();
+            mapRef.current?.exportPDF({ pixelRatio: pngExportRatio });
           }}
         >
           PDF
