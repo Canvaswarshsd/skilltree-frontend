@@ -189,9 +189,20 @@ html, body { overflow: hidden; }
   appearance: none;
   height: 6px;
   border-radius: 999px;
-  background: rgba(255,255,255,.18);
+
+  /* Fill (left) uses the same gradient as the Progress HUD */
+  background:
+    linear-gradient(90deg, #22c55e, #38bdf8) 0 0 / var(--fill, 50%) 100% no-repeat,
+    rgba(255,255,255,.18);
+
   outline: none;
   cursor: pointer;
+}
+
+.download-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
 }
 
 .download-slider::-webkit-slider-thumb {
@@ -218,6 +229,12 @@ html, body { overflow: hidden; }
   height: 6px;
   border-radius: 999px;
   background: rgba(255,255,255,.18);
+}
+
+.download-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22c55e, #38bdf8);
 }
 
 .download-slider-meta {

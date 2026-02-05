@@ -688,6 +688,17 @@ export default function App() {
       </div>
     ) : null;
 
+
+const PNG_RATIO_MIN = 1;
+const PNG_RATIO_MAX = 4;
+const pngRatioPct = Math.max(
+  0,
+  Math.min(
+    100,
+    ((pngExportRatio - PNG_RATIO_MIN) / (PNG_RATIO_MAX - PNG_RATIO_MIN)) * 100
+  )
+);
+
   const downloadMenu =
     downloadOpen && downloadPos ? (
       <div
@@ -727,6 +738,7 @@ export default function App() {
             max={4}
             step={0.25}
             value={pngExportRatio}
+            style={{ ["--fill" as any]: `${pngRatioPct}%` } as any}
             onChange={(e) => setPngExportRatio(parseFloat(e.target.value))}
           />
           <div className="download-slider-meta">
