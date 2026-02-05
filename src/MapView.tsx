@@ -173,6 +173,12 @@ const EXPORT_SHADOW_PAD_X = 36;
 const EXPORT_SHADOW_PAD_TOP = 24;
 const EXPORT_SHADOW_PAD_BOTTOM = 48;
 
+// Notes (Bubble) nutzt drop-shadow(0 12px 26px) – dieser Effekt zählt NICHT in DOM-Bounds.
+// Deshalb geben wir beim Export etwas extra Luft, damit Notes + Shadow nicht abgeschnitten werden.
+const EXPORT_NOTE_SHADOW_PAD_X = 26;
+const EXPORT_NOTE_SHADOW_PAD_TOP = 26;
+const EXPORT_NOTE_SHADOW_PAD_BOTTOM = 38;
+
 const EXPORT_MAX_PIXELS_ON_LONG_SIDE = 12000; // dynamische pixelRatio-Bremse
 
 /* ---------- Browser helpers ---------- */
@@ -1230,7 +1236,79 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     };
 
     return (
-      <div className="map-note-bubble" style={wrapStyle} aria-hidden="true">
+      <div className="map-note-bubble" data-note-for={nodeId} style={wrapStyle} aria-hidden="true">
+        <div style={bubbleStyle}>
+          <div style={subtleTop} />
+          {text}
+          <div style={tailStyle} />
+        </div>
+      </div>
+    );
+  };
+
+
+  // ✅ Export-Notes: nur "Always show note" (pinned) – unabhängig von Hover/active/removeMode
+  const renderExportNoteBubble = (nodeId: string) => {
+    const { text, pinned } = getNoteForNode(nodeId);
+    const hasText = (text || "").trim().length > 0;
+    if (!hasText) return null;
+    if (!pinned) return null;
+
+    const wrapStyle: React.CSSProperties = {
+      position: "absolute",
+      left: "50%",
+      bottom: "100%",
+      transform: "translate(-50%, -14px)",
+      pointerEvents: "none",
+      zIndex: 999999,
+      maxWidth: 260,
+      minWidth: 160,
+      filter: "drop-shadow(0 12px 26px rgba(0,0,0,0.16))",
+    };
+
+    const bubbleStyle: React.CSSProperties = {
+      position: "relative",
+      padding: "10px 12px",
+      borderRadius: 14,
+      background:
+        "linear-gradient(180deg, rgba(255,246,220,1) 0%, rgba(243,225,181,1) 100%)",
+      border: "1px solid rgba(214,182,122,0.95)",
+      boxShadow: "0 2px 0 rgba(255,255,255,0.55) inset",
+      color: "#2f2316",
+      fontWeight: 800,
+      fontSize: 12.5,
+      lineHeight: 1.25,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      letterSpacing: "0.2px",
+    };
+
+    const tailStyle: React.CSSProperties = {
+      position: "absolute",
+      left: "50%",
+      bottom: -8,
+      width: 18,
+      height: 18,
+      transform: "translateX(-50%) rotate(45deg)",
+      background:
+        "linear-gradient(180deg, rgba(255,246,220,1) 0%, rgba(243,225,181,1) 100%)",
+      borderRight: "1px solid rgba(214,182,122,0.95)",
+      borderBottom: "1px solid rgba(214,182,122,0.95)",
+      borderRadius: 3,
+    };
+
+    const subtleTop: React.CSSProperties = {
+      position: "absolute",
+      inset: 0,
+      borderRadius: 14,
+      background:
+        "radial-gradient(120px 60px at 30% 20%, rgba(255,255,255,0.55), rgba(255,255,255,0) 70%)",
+      pointerEvents: "none",
+      opacity: 0.7,
+    };
+
+    return (
+      <div className="map-note-bubble" data-note-for={nodeId} style={wrapStyle} aria-hidden="true">
         <div style={bubbleStyle}>
           <div style={subtleTop} />
           {text}
@@ -1679,15 +1757,151 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     pixelRatio: number;
   };
 
+  type ExportNoteMeasure = {
+    nodeId: string;
+    x: number; // note-box left (export-root coords)
+    y: number; // note-box top  (export-root coords)
+    w: number;
+    h: number;
+    text: string;
+  };
+
+  const measureExportNotes = (layout: ExportLayout) => {
+    const root = exportRootRef.current;
+    if (!root) {
+      return {
+        notes: [] as ExportNoteMeasure[],
+        extraLeft: 0,
+        extraTop: 0,
+        extraRight: 0,
+        extraBottom: 0,
+      };
+    }
+
+    const rootRect = root.getBoundingClientRect();
+    const noteEls = Array.from(
+      root.querySelectorAll('.map-note-bubble[data-note-for]')
+    ) as HTMLElement[];
+
+    const notes: ExportNoteMeasure[] = [];
+
+    let extraLeft = 0;
+    let extraTop = 0;
+    let extraRight = 0;
+    let extraBottom = 0;
+
+    for (const el of noteEls) {
+      const nodeId = el.getAttribute("data-note-for") || "";
+      if (!nodeId) continue;
+
+      // --- Bounds: union of element + descendants (tail etc.) ---
+      let minL = Number.POSITIVE_INFINITY;
+      let minT = Number.POSITIVE_INFINITY;
+      let maxR = Number.NEGATIVE_INFINITY;
+      let maxB = Number.NEGATIVE_INFINITY;
+
+      const all = [el, ...(Array.from(el.querySelectorAll("*")) as HTMLElement[])];
+      for (const a of all) {
+        const r = a.getBoundingClientRect();
+        if (!r || !Number.isFinite(r.left)) continue;
+        minL = Math.min(minL, r.left);
+        minT = Math.min(minT, r.top);
+        maxR = Math.max(maxR, r.right);
+        maxB = Math.max(maxB, r.bottom);
+      }
+      if (!Number.isFinite(minL) || !Number.isFinite(minT)) continue;
+
+      const lx1 = minL - rootRect.left;
+      const ly1 = minT - rootRect.top;
+      const lx2 = maxR - rootRect.left;
+      const ly2 = maxB - rootRect.top;
+
+      // Notes haben drop-shadow – der zählt nicht zu DOM-Bounds.
+      const bx1 = lx1 - EXPORT_NOTE_SHADOW_PAD_X;
+      const by1 = ly1 - EXPORT_NOTE_SHADOW_PAD_TOP;
+      const bx2 = lx2 + EXPORT_NOTE_SHADOW_PAD_X;
+      const by2 = ly2 + EXPORT_NOTE_SHADOW_PAD_BOTTOM;
+
+      extraLeft = Math.max(extraLeft, -bx1);
+      extraTop = Math.max(extraTop, -by1);
+      extraRight = Math.max(extraRight, bx2 - layout.width);
+      extraBottom = Math.max(extraBottom, by2 - layout.height);
+
+      // --- Canvas drawing: use the actual note-box rect (first child) ---
+      const boxEl = el.firstElementChild as HTMLElement | null;
+      if (boxEl) {
+        const br = boxEl.getBoundingClientRect();
+        notes.push({
+          nodeId,
+          x: br.left - rootRect.left,
+          y: br.top - rootRect.top,
+          w: br.width,
+          h: br.height,
+          text: getNoteForNode(nodeId).text || "",
+        });
+      }
+    }
+
+    return { notes, extraLeft, extraTop, extraRight, extraBottom };
+  };
+
+  const expandLayoutForNotes = (
+    layout: ExportLayout,
+    extraLeft: number,
+    extraTop: number,
+    extraRight: number,
+    extraBottom: number
+  ): ExportLayout => {
+    const l = Math.max(0, Math.ceil(extraLeft));
+    const t = Math.max(0, Math.ceil(extraTop));
+    const r = Math.max(0, Math.ceil(extraRight));
+    const b = Math.max(0, Math.ceil(extraBottom));
+
+    if (l === 0 && t === 0 && r === 0 && b === 0) return layout;
+
+    return {
+      ...layout,
+      width: layout.width + l + r,
+      height: layout.height + t + b,
+      originX: layout.originX + l,
+      originY: layout.originY + t,
+    };
+  };
+
+  const prepareExportLayoutWithNotes = async (): Promise<{
+    layout: ExportLayout;
+    notes: ExportNoteMeasure[];
+  }> => {
+    const base = computeExportLayout();
+    setExportLayout(base);
+    await wait2Frames();
+
+    const m1 = measureExportNotes(base);
+    const adjusted = expandLayoutForNotes(
+      base,
+      m1.extraLeft,
+      m1.extraTop,
+      m1.extraRight,
+      m1.extraBottom
+    );
+
+    if (adjusted !== base) {
+      setExportLayout(adjusted);
+      await wait2Frames();
+      const m2 = measureExportNotes(adjusted);
+      return { layout: adjusted, notes: m2.notes };
+    }
+
+    return { layout: base, notes: m1.notes };
+  };
+
   /* ---------- Export (DOM capture) - unverändert für Chrome/Firefox ---------- */
   const captureExportDOM = async (): Promise<ExportCapture> => {
     if (exportBusy.current) throw new Error("Export already in progress");
     exportBusy.current = true;
 
     try {
-      const layout = computeExportLayout();
-      setExportLayout(layout);
-      await wait2Frames();
+      const { layout } = await prepareExportLayoutWithNotes();
 
       const el = exportRootRef.current;
       if (!el) throw new Error("Export root not mounted");
@@ -1932,7 +2146,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     try {
       await ensureFontsReady();
 
-      const layout = computeExportLayout();
+      const { layout, notes } = await prepareExportLayoutWithNotes();
       const pixelRatio = pickPixelRatio(layout.width, layout.height);
 
       const canvas = document.createElement("canvas");
@@ -2038,6 +2252,196 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
         ctx.restore();
       }
 
+      // ---- Notes (pinned) ----
+      const drawRoundedRect = (
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+        r: number
+      ) => {
+        const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.lineTo(x + w - rr, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+        ctx.lineTo(x + w, y + h - rr);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+        ctx.lineTo(x + rr, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+        ctx.lineTo(x, y + rr);
+        ctx.quadraticCurveTo(x, y, x + rr, y);
+        ctx.closePath();
+      };
+
+      const wrapNoteLines = (txt: string, maxW: number, font: string) => {
+        ctx.save();
+        ctx.font = font;
+        const out: string[] = [];
+        const raw = (txt || "").split(/\r?\n/);
+
+        const pushWrapped = (line: string) => {
+          const trimmed = line;
+          if (!trimmed) {
+            out.push("");
+            return;
+          }
+
+          const words = trimmed.split(/\s+/);
+          let cur = "";
+
+          const flushCur = () => {
+            if (cur) out.push(cur);
+            cur = "";
+          };
+
+          for (const w of words) {
+            const next = cur ? cur + " " + w : w;
+            if (ctx.measureText(next).width <= maxW) {
+              cur = next;
+              continue;
+            }
+
+            if (!cur) {
+              // break long single word
+              let chunk = "";
+              for (const ch of Array.from(w)) {
+                const test = chunk + ch;
+                if (ctx.measureText(test).width <= maxW) {
+                  chunk = test;
+                } else {
+                  if (chunk) out.push(chunk);
+                  chunk = ch;
+                }
+              }
+              if (chunk) out.push(chunk);
+              cur = "";
+            } else {
+              flushCur();
+              cur = w;
+            }
+          }
+          flushCur();
+        };
+
+        for (const ln of raw) pushWrapped(ln);
+
+        ctx.restore();
+        return out;
+      };
+
+      const noteFontFamily = centerStyle.fontFamily || "system-ui";
+      const noteFont = `800 12.5px ${noteFontFamily}`;
+      const noteLineH = 12.5 * 1.25;
+
+      for (const n of notes) {
+        const x = n.x;
+        const y = n.y;
+        const w = n.w;
+        const h = n.h;
+
+        // shadow
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.16)";
+        ctx.shadowBlur = 26;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 12;
+
+        // background gradient
+        const grad = ctx.createLinearGradient(0, y, 0, y + h);
+        grad.addColorStop(0, "rgba(255,246,220,1)");
+        grad.addColorStop(1, "rgba(243,225,181,1)");
+        ctx.fillStyle = grad;
+
+        drawRoundedRect(x, y, w, h, 14);
+        ctx.fill();
+        ctx.restore();
+
+        // border + subtle top highlight
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(214,182,122,0.95)";
+        drawRoundedRect(x, y, w, h, 14);
+        ctx.stroke();
+
+        const hi = ctx.createRadialGradient(
+          x + w * 0.3,
+          y + h * 0.2,
+          0,
+          x + w * 0.3,
+          y + h * 0.2,
+          Math.max(40, Math.min(140, w))
+        );
+        hi.addColorStop(0, "rgba(255,255,255,0.55)");
+        hi.addColorStop(0.7, "rgba(255,255,255,0)");
+        ctx.fillStyle = hi;
+        drawRoundedRect(x, y, w, h, 14);
+        ctx.fill();
+        ctx.restore();
+
+        // tail (diamond)
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.16)";
+        ctx.shadowBlur = 26;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 12;
+
+        const tailSize = 18;
+        const tailBottom = -8; // matches DOM
+        const d = tailSize / Math.SQRT2;
+        const cx = x + w / 2;
+        const cy = y + h + tailBottom + tailSize / 2;
+
+        const tailGrad = ctx.createLinearGradient(0, y, 0, y + h);
+        tailGrad.addColorStop(0, "rgba(255,246,220,1)");
+        tailGrad.addColorStop(1, "rgba(243,225,181,1)");
+        ctx.fillStyle = tailGrad;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - d);
+        ctx.lineTo(cx + d, cy);
+        ctx.lineTo(cx, cy + d);
+        ctx.lineTo(cx - d, cy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(214,182,122,0.95)";
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - d);
+        ctx.lineTo(cx + d, cy);
+        ctx.lineTo(cx, cy + d);
+        ctx.lineTo(cx - d, cy);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        // text
+        const padX = 12;
+        const padY = 10;
+        const maxW = Math.max(10, w - padX * 2);
+        const lines = wrapNoteLines(n.text || "", maxW, noteFont);
+
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle = "#2f2316";
+        ctx.font = noteFont;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        let ty = y + padY;
+        for (const ln of lines) {
+          if (ty + noteLineH > y + h - padY + 0.5) break;
+          ctx.fillText(ln, x + padX, ty);
+          ty += noteLineH;
+        }
+        ctx.restore();
+      }
+
       const dataUrl = canvas.toDataURL("image/png");
       if (!dataUrl || !dataUrl.startsWith("data:image/")) {
         throw new Error("Invalid PNG data generated");
@@ -2045,6 +2449,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
 
       return { dataUrl, layout, pixelRatio };
     } finally {
+      setExportLayout(null);
       exportBusy.current = false;
     }
   };
@@ -2994,6 +3399,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
                   data-remove-mode={removeMode ? "true" : "false"}
                   data-remove-selected={n.removeSelected ? "true" : "false"}
                 >
+                  {renderExportNoteBubble(n.id)}
                   {removeMode && (
                     <div className="remove-checkbox" aria-hidden="true">
                       {n.removeSelected && <div className="remove-checkbox-mark">✕</div>}
