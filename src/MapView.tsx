@@ -32,14 +32,21 @@ export type Task = {
   notePinned?: boolean; // true = immer sichtbar, false/undefined = nur bei Hover
 };
 
+export type ExportImageOptions = {
+  pixelRatio?: number;
+};
+
+export type ExportSizeInfo = {
+  widthPx: number;
+  heightPx: number;
+  pixelRatio: number;
+};
+
 export type MapApi = {
-  // PNG ist jetzt das Primärformat
-  exportPNG: () => Promise<void>;
-
-  // Kompatibilität: alte Aufrufer, die noch exportJPG nutzen, funktionieren weiter.
-  exportJPG: () => Promise<void>;
-
-  exportPDF: () => Promise<void>;
+  exportPNG: (opts?: ExportImageOptions) => Promise<void>;
+  exportJPG: (opts?: ExportImageOptions) => Promise<void>;
+  exportPDF: (opts?: ExportImageOptions) => Promise<void>;
+  getPNGExportSize: (opts?: ExportImageOptions) => Promise<ExportSizeInfo>;
   resetView: () => void;
 };
 
@@ -1538,6 +1545,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   const exportRootRef = useRef<HTMLDivElement | null>(null);
   const [exportLayout, setExportLayout] = useState<ExportLayout | null>(null);
   const exportBusy = useRef(false);
+  const exportSizingBusy = useRef(false);
 
   const wait2Frames = async () => {
     await new Promise<void>((resolve) =>
@@ -1743,12 +1751,23 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     return { width, height, originX, originY, nodes, edges };
   };
 
-  const pickPixelRatio = (w: number, h: number) => {
-    const dpr = window.devicePixelRatio || 1;
-    const base = clamp(dpr * 2, 2, 4);
+  const pickPixelRatio = (w: number, h: number, requested?: number) => {
     const longSide = Math.max(w, h);
-    const maxRatioBySize = EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
-    return clamp(Math.min(base, maxRatioBySize), 1, 4);
+    const maxRatioBySize =
+      EXPORT_MAX_PIXELS_ON_LONG_SIDE / Math.max(1, longSide);
+
+    const HARD_MAX = 4;
+
+    const base = (() => {
+      if (typeof requested === "number" && Number.isFinite(requested)) {
+        return clamp(requested, 1, HARD_MAX);
+      }
+      const dpr = window.devicePixelRatio || 1;
+      // previous default behavior: dpr*2 clamped to 2..4
+      return clamp(dpr * 2, 2, HARD_MAX);
+    })();
+
+    return clamp(Math.min(base, maxRatioBySize), 1, HARD_MAX);
   };
 
   type ExportCapture = {
@@ -1896,17 +1915,19 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   };
 
   /* ---------- Export (DOM capture) - unverändert für Chrome/Firefox ---------- */
-  const captureExportDOM = async (): Promise<ExportCapture> => {
+  const captureExportDOM = async (opts?: ExportImageOptions): Promise<ExportCapture> => {
     if (exportBusy.current) throw new Error("Export already in progress");
     exportBusy.current = true;
 
     try {
+      await ensureFontsReady();
+
       const { layout } = await prepareExportLayoutWithNotes();
 
       const el = exportRootRef.current;
       if (!el) throw new Error("Export root not mounted");
 
-      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+      const pixelRatio = pickPixelRatio(layout.width, layout.height, opts?.pixelRatio);
 
       const dataUrl = await htmlToImage.toPng(el, {
         backgroundColor: "#ffffff",
@@ -2139,7 +2160,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     ctx.restore();
   };
 
-  const captureExportCanvasSafari = async (): Promise<ExportCapture> => {
+  const captureExportCanvasSafari = async (opts?: ExportImageOptions): Promise<ExportCapture> => {
     if (exportBusy.current) throw new Error("Export already in progress");
     exportBusy.current = true;
 
@@ -2147,7 +2168,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
       await ensureFontsReady();
 
       const { layout, notes } = await prepareExportLayoutWithNotes();
-      const pixelRatio = pickPixelRatio(layout.width, layout.height);
+      const pixelRatio = pickPixelRatio(layout.width, layout.height, opts?.pixelRatio);
 
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.ceil(layout.width * pixelRatio));
@@ -2455,16 +2476,16 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
   };
 
   /* ---------- Export chooser (Safari fix only) ---------- */
-  const captureExport = async (): Promise<ExportCapture> => {
+  const captureExport = async (opts?: ExportImageOptions): Promise<ExportCapture> => {
     if (isSafariBrowser()) {
-      return await captureExportCanvasSafari();
+      return await captureExportCanvasSafari(opts);
     }
-    return await captureExportDOM();
+    return await captureExportDOM(opts);
   };
 
-  const doDownloadPNG = async () => {
+  const doDownloadPNG = async (opts?: ExportImageOptions) => {
     try {
-      const { dataUrl } = await captureExport();
+      const { dataUrl } = await captureExport(opts);
 
       // Safari: besser via Blob (große dataURLs + download sind manchmal flaky)
       if (isSafariBrowser()) {
@@ -2484,9 +2505,9 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
   };
 
-  const doDownloadPDF = async () => {
+  const doDownloadPDF = async (opts?: ExportImageOptions) => {
     try {
-      const { dataUrl, layout } = await captureExport();
+      const { dataUrl, layout } = await captureExport(opts);
 
       // PDF-Seite = unskalierte Layout-Größe (nicht Bildpixel!)
       const pageW = layout.width;
@@ -2514,6 +2535,27 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     }
   };
 
+  const getPNGExportSize = async (
+    opts?: ExportImageOptions
+  ): Promise<ExportSizeInfo> => {
+    if (exportBusy.current) throw new Error("Export already in progress");
+    if (exportSizingBusy.current) throw new Error("Export sizing already in progress");
+    exportSizingBusy.current = true;
+
+    try {
+      const { layout } = await prepareExportLayoutWithNotes();
+      const pixelRatio = pickPixelRatio(layout.width, layout.height, opts?.pixelRatio);
+
+      const widthPx = Math.max(1, Math.ceil(layout.width * pixelRatio));
+      const heightPx = Math.max(1, Math.ceil(layout.height * pixelRatio));
+
+      return { widthPx, heightPx, pixelRatio };
+    } finally {
+      setExportLayout(null);
+      exportSizingBusy.current = false;
+    }
+  };
+
   /* ---------- Ref-API ---------- */
   const resetView = () => {
     setScale(1);
@@ -2524,6 +2566,7 @@ const MapView = forwardRef<MapApi, MapViewProps>(function MapView(props, ref) {
     exportPNG: doDownloadPNG,
     exportJPG: doDownloadPNG, // Alias
     exportPDF: doDownloadPDF,
+    getPNGExportSize,
     resetView,
   }));
 

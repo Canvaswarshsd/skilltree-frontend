@@ -597,6 +597,21 @@ export default function App() {
 
   // Download dropdown -> MapView API
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [pngExportRatio, setPngExportRatio] = useState(2);
+  const [pngExportSize, setPngExportSize] = useState<{
+    widthPx: number;
+    heightPx: number;
+    pixelRatio: number;
+  } | null>(null);
+  const downloadMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // initial slider value = previous default export behavior (dpr*2 clamped to 1..4)
+  useEffect(() => {
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const initial = Math.max(1, Math.min(4, dpr * 2));
+    setPngExportRatio(initial);
+  }, []);
+
   const downloadBtnRef = useRef<HTMLButtonElement | null>(null);
   const [downloadPos, setDownloadPos] = useState<{
     top: number;
@@ -610,6 +625,43 @@ export default function App() {
   };
   const toggleDownloadMenu = () =>
     setDownloadOpen((prev) => (prev ? false : (openDownloadMenu(), true)));
+
+
+  // close download menu on click outside (so slider dragging doesn't close it)
+  useEffect(() => {
+    if (!downloadOpen) return;
+    const onDown = (e: any) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (downloadMenuRef.current && downloadMenuRef.current.contains(t)) return;
+      if (downloadBtnRef.current && downloadBtnRef.current.contains(t)) return;
+      setDownloadOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [downloadOpen]);
+
+  // compute final PNG pixel size (depends on current map bounds + pinned notes + pixelRatio cap)
+  useEffect(() => {
+    if (!downloadOpen) return;
+    let dead = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await mapRef.current?.getPNGExportSize({
+          pixelRatio: pngExportRatio,
+        });
+        if (dead) return;
+        setPngExportSize(res ?? null);
+      } catch {
+        if (!dead) setPngExportSize(null);
+      }
+    }, 80);
+
+    return () => {
+      dead = true;
+      window.clearTimeout(t);
+    };
+  }, [downloadOpen, pngExportRatio]);
 
   const mapRef = useRef<MapApi>(null);
 
@@ -639,23 +691,53 @@ export default function App() {
   const downloadMenu =
     downloadOpen && downloadPos ? (
       <div
-        className="save-menu"
+        ref={downloadMenuRef}
+        className="save-menu download-menu"
         role="menu"
         style={{
           top: downloadPos.top,
           left: downloadPos.left,
           transform: "translateX(-100%)",
         }}
-        onMouseLeave={() => setDownloadOpen(false)}
       >
-        <button className="save-item" onClick={() => mapRef.current?.exportPDF()}>
+        <button
+          className="save-item"
+          onClick={() => {
+            setDownloadOpen(false);
+            mapRef.current?.exportPDF();
+          }}
+        >
           PDF
         </button>
-        <button className="save-item" onClick={() => mapRef.current?.exportPNG()}>
+        <button
+          className="save-item"
+          onClick={() => {
+            setDownloadOpen(false);
+            mapRef.current?.exportPNG({ pixelRatio: pngExportRatio });
+          }}
+        >
           PNG
         </button>
+
+        <div className="download-slider-wrap" aria-hidden="false">
+          <input
+            className="download-slider"
+            type="range"
+            min={1}
+            max={4}
+            step={0.25}
+            value={pngExportRatio}
+            onChange={(e) => setPngExportRatio(parseFloat(e.target.value))}
+          />
+          <div className="download-slider-meta">
+            {pngExportSize
+              ? `${pngExportSize.widthPx} × ${pngExportSize.heightPx} px`
+              : "…"}
+          </div>
+        </div>
       </div>
     ) : null;
+
 
   return (
     <div className={"app" + (centerColorCustomized ? "" : " app-center-innocent")}>

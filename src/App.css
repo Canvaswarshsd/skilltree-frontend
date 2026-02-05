@@ -171,6 +171,65 @@ html, body { overflow: hidden; }
 }
 .save-item:hover { background: rgba(148,163,184,.15); }
 
+ /* =========================
+    Download slider (PNG resolution)
+    ========================= */
+.save-menu.download-menu {
+  min-width: 220px;
+  padding-bottom: .55rem;
+}
+
+.download-slider-wrap {
+  padding: .35rem .62rem .15rem;
+}
+
+.download-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  outline: none;
+  cursor: pointer;
+}
+
+.download-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.92);
+  border: 1px solid rgba(255,255,255,.24);
+  box-shadow: 0 4px 12px rgba(0,0,0,.35);
+}
+
+.download-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.92);
+  border: 1px solid rgba(255,255,255,.24);
+  box-shadow: 0 4px 12px rgba(0,0,0,.35);
+}
+
+.download-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+}
+
+.download-slider-meta {
+  margin-top: .32rem;
+  text-align: right;
+  font-size: 12px;
+  color: rgba(255,255,255,.72);
+  font-style: italic;
+  user-select: none;
+}
+
+
 /* =========================
    Body
    ========================= */
