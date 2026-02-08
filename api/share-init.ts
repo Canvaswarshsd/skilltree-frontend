@@ -1,4 +1,4 @@
-import { encodeObjectPath, getSupabaseEnv, json, readJson, supabaseHeaders } from './_supabaseFetch'
+import { encodeObjectPath, getSupabaseEnv, json, readJson, supabaseHeaders } from './_supabaseFetch.js'
 
 function base64Url(bytes: Uint8Array): string {
   // Prefer Buffer when available (Node), otherwise fall back to btoa (Edge/web).
@@ -78,10 +78,10 @@ export default async function handler(req: any, res: any) {
       const path = `shares/${shareId}/${name}`
 
       // Storage API: generate a presigned url to upload an object
-      // Endpoint: PUT /object/upload/sign/{bucketName}/{wildcard}
+      // Endpoint: POST /object/upload/sign/{bucketName}/{wildcard}
       const url = `${env.url}/storage/v1/object/upload/sign/${encodeURIComponent(env.bucket)}/${encodeObjectPath(path)}`
       const r = await fetch(url, {
-        method: 'PUT',
+        method: 'POST',
         headers: supabaseHeaders(env, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ expiresIn: 7200 }),
       })

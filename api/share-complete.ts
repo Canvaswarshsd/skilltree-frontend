@@ -1,4 +1,4 @@
-import { getSupabaseEnv, json, readJson, supabaseHeaders } from './_supabaseFetch'
+import { getSupabaseEnv, json, readJson, supabaseHeaders } from './_supabaseFetch.js'
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

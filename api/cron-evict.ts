@@ -1,4 +1,4 @@
-import { getSupabaseEnv, json, supabaseHeaders } from './_supabaseFetch'
+import { getSupabaseEnv, json, supabaseHeaders } from './_supabaseFetch.js'
 
 type AnyObj = Record<string, any>
 

@@ -1,4 +1,4 @@
-import { encodeObjectPath, getSupabaseEnv, json, supabaseHeaders } from './_supabaseFetch'
+import { encodeObjectPath, getSupabaseEnv, json, supabaseHeaders } from './_supabaseFetch.js'
 
 type AnyObj = Record<string, any>
 
