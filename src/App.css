@@ -814,3 +814,54 @@ html, body { overflow: hidden; }
 .app.app-center-innocent .skill-node.center-node .done-badge{
   box-shadow: 0 0 0 1px rgba(4,7,15,.25), 0 6px 18px rgba(0,0,0,.20);
 }
+
+
+/* Share dropdown */
+.save-menu.share-menu {
+  min-width: 280px;
+}
+
+.share-link-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 10px 8px 10px;
+  align-items: center;
+}
+
+.share-link-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(2, 6, 23, 0.92);
+  font-size: 13px;
+}
+
+.share-copy-btn {
+  height: 34px;
+  width: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(2, 6, 23, 0.92);
+  cursor: pointer;
+}
+
+.share-copy-btn:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.share-hint {
+  padding: 0 10px 10px 10px;
+  font-size: 12px;
+  color: rgba(2, 6, 23, 0.68);
+}
+
+.share-error {
+  padding: 0 10px 10px 10px;
+  font-size: 12px;
+  color: rgba(220, 38, 38, 0.95);
+}

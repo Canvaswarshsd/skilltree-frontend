@@ -137,6 +137,34 @@ export default function App() {
     return /\biPhone\b/i.test(navigator.userAgent);
   }, []);
 
+
+  // Auto-load shared maps: /s/<id>
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const m = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)\/?$/);
+    if (!m) return;
+
+    const id = m[1];
+    let dead = false;
+
+    (async () => {
+      try {
+        const r = await fetch(`/api/share-get?id=${encodeURIComponent(id)}`);
+        const j = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(j?.error || "Share link not found.");
+        if (dead) return;
+        if (j?.state) loadFromJSON(j.state);
+        setView("map");
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+
+    return () => {
+      dead = true;
+    };
+  }, []);
+
   // TAB TITLE: dynamic browser tab title
   useEffect(() => {
     const baseTitle = "OpenTaskMap | Visualize Projects as a Zoomable Task Map";
@@ -605,6 +633,198 @@ export default function App() {
   } | null>(null);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // Share dropdown + share-link generation
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareMenuRef = useRef<HTMLDivElement | null>(null);
+  const shareBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [sharePos, setSharePos] = useState<{ top: number; left: number } | null>(
+    null
+  );
+  const [shareLink, setShareLink] = useState<string>("");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareErr, setShareErr] = useState<string>("");
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const openShareMenu = () => {
+    const r = shareBtnRef.current?.getBoundingClientRect();
+    if (!r) return setShareOpen((v) => !v);
+    setSharePos({ top: r.bottom + 6, left: r.right });
+    setShareOpen(true);
+  };
+  const toggleShareMenu = () =>
+    setShareOpen((prev) => (prev ? false : (openShareMenu(), true)));
+
+  useEffect(() => {
+    if (!shareOpen) return;
+    const onDown = (e: any) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (shareMenuRef.current && shareMenuRef.current.contains(t)) return;
+      if (shareBtnRef.current && shareBtnRef.current.contains(t)) return;
+      setShareOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [shareOpen]);
+
+  const dataUrlToBlob = (dataUrl: string): Blob => {
+    const comma = dataUrl.indexOf(",");
+    const header = comma >= 0 ? dataUrl.slice(0, comma) : "";
+    const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : "";
+    const mime =
+      (header.match(/^data:([^;]+);base64$/i)?.[1] as string | undefined) ||
+      "application/octet-stream";
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  };
+
+  const attachmentToBlob = async (a: TaskAttachment): Promise<Blob> => {
+    const u = a?.dataUrl || "";
+    if (u.startsWith("data:")) return dataUrlToBlob(u);
+    // signed URL or other remote URL
+    const r = await fetch(u);
+    if (!r.ok) throw new Error("Could not fetch attachment.");
+    return await r.blob();
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  const generateShareLink = async () => {
+    setShareErr("");
+    setShareCopied(false);
+
+    const state = serializeState(
+      projectTitle,
+      tasks,
+      nodeOffset,
+      pan,
+      scale,
+      branchColorOverride,
+      centerColorRaw,
+      branchEdgeColorOverride,
+      edgeColorOverride,
+      centerAttachments,
+      centerNote,
+      centerNotePinned,
+      centerColorCustomized
+    );
+
+    // Clone so we can replace attachment dataUrls with storage paths
+    const shareState: any = JSON.parse(JSON.stringify(state));
+
+    // Collect attachments (center + tasks) with stable keys and direct object refs.
+    const items: Array<{ key: string; att: TaskAttachment }> = [];
+    if (Array.isArray(shareState.centerAttachments)) {
+      for (const a of shareState.centerAttachments) {
+        if (!a?.dataUrl) continue;
+        items.push({ key: `c:${a.id || a.name}`, att: a });
+      }
+    }
+    if (Array.isArray(shareState.tasks)) {
+      for (const t of shareState.tasks) {
+        if (!Array.isArray(t?.attachments)) continue;
+        for (const a of t.attachments) {
+          if (!a?.dataUrl) continue;
+          items.push({ key: `t:${t.id}:${a.id || a.name}`, att: a });
+        }
+      }
+    }
+
+    setShareBusy(true);
+    try {
+      // 1) ask backend for signed upload URLs
+      const initRes = await fetch("/api/share-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: items.map((it) => ({ key: it.key })) }),
+      });
+
+      const initJson = await initRes.json().catch(() => null);
+      if (!initRes.ok) {
+        throw new Error(
+          initJson?.error || "Share init failed (check /api/share-init)."
+        );
+      }
+
+      const shareId: string = String(initJson?.shareId || "");
+      const uploads: Array<{ key: string; path: string; signedUrl: string }> =
+        Array.isArray(initJson?.uploads) ? initJson.uploads : [];
+
+      if (!shareId || uploads.length !== items.length) {
+        throw new Error("Share init returned unexpected data.");
+      }
+
+      // 2) upload all PDFs directly to Supabase Storage via presigned URLs
+      let bytesTotal = 0;
+
+      for (const up of uploads) {
+        const it = items.find((x) => x.key === up.key);
+        if (!it) continue;
+
+        const blob = await attachmentToBlob(it.att);
+        bytesTotal += blob.size;
+
+        const put = await fetch(up.signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": it.att.mime || "application/pdf" },
+          body: blob,
+        });
+
+        if (!put.ok) {
+          throw new Error("Upload failed (one or more PDFs).");
+        }
+
+        // Replace dataUrl with storage path (backend will sign on load)
+        it.att.dataUrl = up.path;
+      }
+
+      // 3) persist share state
+      const doneRes = await fetch("/api/share-complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shareId, state: shareState, bytesTotal }),
+      });
+
+      const doneJson = await doneRes.json().catch(() => null);
+      if (!doneRes.ok) {
+        throw new Error(doneJson?.error || "Share complete failed.");
+      }
+
+      const link = `${window.location.origin}/s/${shareId}`;
+      setShareLink(link);
+
+      // auto copy
+      const ok = await copyToClipboard(link);
+      setShareCopied(ok);
+    } catch (e: any) {
+      setShareErr(String(e?.message || "Share failed."));
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+
   // initial slider value = previous default export behavior (dpr*2 clamped to 1..4)
   useEffect(() => {
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
@@ -750,6 +970,45 @@ const pngRatioPct = Math.max(
       </div>
     ) : null;
 
+  const shareMenu =
+    shareOpen && sharePos ? (
+      <div
+        ref={shareMenuRef}
+        className="save-menu share-menu"
+        role="menu"
+        style={{
+          top: sharePos.top,
+          left: sharePos.left,
+          transform: "translateX(-100%)",
+        }}
+      >
+        <button className="save-item" disabled={shareBusy} onClick={generateShareLink}>
+          {shareBusy ? "Generating…" : "Generate Link"}
+        </button>
+
+        {shareLink ? (
+          <div className="share-link-row">
+            <input className="share-link-input" value={shareLink} readOnly />
+            <button
+              className="share-copy-btn"
+              onClick={async () => {
+                const ok = await copyToClipboard(shareLink);
+                setShareCopied(ok);
+              }}
+              title="Copy"
+              aria-label="Copy share link"
+            >
+              ⧉
+            </button>
+          </div>
+        ) : null}
+
+        {shareCopied ? <div className="share-hint">Copied.</div> : null}
+        {shareErr ? <div className="share-error">{shareErr}</div> : null}
+      </div>
+    ) : null;
+
+
 
   return (
     <div className={"app" + (centerColorCustomized ? "" : " app-center-innocent")}>
@@ -825,6 +1084,17 @@ const pngRatioPct = Math.max(
                 ? createPortal(downloadMenu, document.body)
                 : null
               : downloadMenu}
+          </div>
+
+          <div className="save-wrap">
+            <button ref={shareBtnRef} className="view-btn" onClick={toggleShareMenu}>
+              Share
+            </button>
+            {isIPhone
+              ? shareMenu
+                ? createPortal(shareMenu, document.body)
+                : null
+              : shareMenu}
           </div>
 
           <button

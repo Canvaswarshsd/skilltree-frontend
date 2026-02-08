@@ -35,9 +35,26 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
 }
 
 // PDF-MIME erzwingen, damit Browser das als PDF rendert (nicht als "download me")
-function attachmentToPdfBlob(att: TaskAttachment): Blob {
-  const bytes = dataUrlToUint8Array(att.dataUrl);
-  return new Blob([bytes], { type: "application/pdf" });
+async function attachmentToPdfBlob(att: TaskAttachment): Promise<Blob> {
+  const u = att?.dataUrl || "";
+  if (u.startsWith("data:")) {
+    const bytes = dataUrlToUint8Array(u);
+    return new Blob([bytes], { type: "application/pdf" });
+  }
+  // signed URL or other remote URL
+  const r = await fetch(u);
+  if (!r.ok) throw new Error("Could not fetch PDF.");
+  const b = await r.blob();
+  return b.type === "application/pdf" ? b : new Blob([b], { type: "application/pdf" });
+}
+
+async function attachmentToPdfBytes(att: TaskAttachment): Promise<Uint8Array> {
+  const u = att?.dataUrl || "";
+  if (u.startsWith("data:")) return dataUrlToUint8Array(u);
+  const r = await fetch(u);
+  if (!r.ok) throw new Error("Could not fetch PDF.");
+  const ab = await r.arrayBuffer();
+  return new Uint8Array(ab);
 }
 
 function downloadBlob(filename: string, blob: Blob) {
@@ -147,7 +164,7 @@ export default function PdfPreviewOverlay(props: Props) {
       if (host) host.innerHTML = "";
 
       try {
-        const data = dataUrlToUint8Array(selected.dataUrl);
+        const data = await attachmentToPdfBytes(selected);
 
         loadingTask = getDocument({ data });
         const pdf: PDFDocumentProxy = await loadingTask.promise;
@@ -230,10 +247,10 @@ export default function PdfPreviewOverlay(props: Props) {
     if (!attachments.length) onClose();
   }, [open, attachments.length, onClose]);
 
-  const onDownloadSelected = () => {
+  const onDownloadSelected = async () => {
     if (!selected) return;
     try {
-      const blob = attachmentToPdfBlob(selected);
+      const blob = await attachmentToPdfBlob(selected);
       downloadBlob(selected.name || "attachment.pdf", blob);
     } catch {
       window.alert("Download failed. Please try again.");
@@ -241,13 +258,13 @@ export default function PdfPreviewOverlay(props: Props) {
   };
 
   // IMPORTANT: Kein Download-Fallback. Entweder Tab geht auf, oder wir sagen "Popup blocked".
-  const onOpenSelectedInNewTab = () => {
+  const onOpenSelectedInNewTab = async () => {
     if (!selected) return;
 
     let url: string | null = null;
 
     try {
-      const blob = attachmentToPdfBlob(selected);
+      const blob = await attachmentToPdfBlob(selected);
       url = URL.createObjectURL(blob);
 
       // Popup-Blocker umgehen: sofort leeren Tab öffnen (User-Gesture), dann URL setzen
